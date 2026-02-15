@@ -87,7 +87,7 @@ body {
   gap: 6px;
 }
 
-#btn-instructions, #btn-settings {
+#btn-notifications, #btn-instructions, #btn-settings {
   background: none;
   border: 1px solid var(--border);
   color: var(--text-dim);
@@ -98,7 +98,7 @@ body {
   transition: all 0.15s;
 }
 
-#btn-instructions:hover, #btn-settings:hover {
+#btn-notifications:hover, #btn-instructions:hover, #btn-settings:hover {
   color: var(--text);
   border-color: var(--accent);
 }
