@@ -430,6 +430,7 @@ function createTerminal(sessionId) {
     if (e.type !== 'keydown') return true;
     const isPaste = (e.ctrlKey && e.key === 'v') || (e.shiftKey && e.key === 'Insert');
     if (isPaste) {
+      e.preventDefault();
       navigator.clipboard.readText().then(text => {
         if (text) window.api.writePty(sessionId, text);
       }).catch(() => {});
