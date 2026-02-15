@@ -312,6 +312,20 @@ async function openSession(sessionId) {
 
 async function newSession() {
   const sessionId = await window.api.newSession();
+
+  // Add placeholder so the session appears in the sidebar immediately
+  const now = new Date().toISOString();
+  allSessions.unshift({
+    id: sessionId,
+    title: 'New Session',
+    cwd: '',
+    createdAt: now,
+    updatedAt: now,
+    lastModified: Date.now(),
+    tags: [],
+    resources: []
+  });
+
   createTerminal(sessionId);
   switchToSession(sessionId);
   addTab(sessionId, 'New Session');
