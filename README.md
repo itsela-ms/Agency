@@ -1,4 +1,4 @@
-# Agency
+# GroundControl
 
 Session manager for GitHub Copilot CLI — visual overview, instant switching, and easy resume instead of hunting for session IDs.
 
@@ -7,7 +7,7 @@ Session manager for GitHub Copilot CLI — visual overview, instant switching, a
 
 ## The Problem
 
-Copilot CLI supports `--resume <sessionId>`, but managing sessions means remembering UUIDs, digging through `~/.copilot/session-state/`, and having no way to see what's running. Agency gives you a GUI for all of that.
+Copilot CLI supports `--resume <sessionId>`, but managing sessions means remembering UUIDs, digging through `~/.copilot/session-state/`, and having no way to see what's running. GroundControl gives you a GUI for all of that.
 
 ## Features
 
@@ -25,15 +25,15 @@ Copilot CLI supports `--resume <sessionId>`, but managing sessions means remembe
 
 ### From Installer (recommended)
 
-Download the latest `Agency-x.x.x.exe` from [Releases](https://github.com/itsela-ms/Agency/releases) and run it — no installation needed, it's a portable executable.
+Download the latest `GroundControl-x.x.x.exe` from [Releases](https://github.com/itsela-ms/GroundControl/releases) and run it — no installation needed, it's a portable executable.
 
 **Prerequisite:** [GitHub Copilot CLI](https://github.com/github/copilot-cli) — `winget install github.copilot`
 
 ### From Source
 
 ```bash
-git clone https://github.com/itsela-ms/Agency.git
-cd Agency
+git clone https://github.com/itsela-ms/GroundControl.git
+cd GroundControl
 npm install
 
 # Run directly

@@ -271,7 +271,8 @@ function renderSessionList() {
   let lastDateLabel = '';
   for (const session of displayed) {
     if (currentSidebarTab === 'history') {
-      const dateLabel = getDateLabel(session.updatedAt);
+      const lastUsedTs = sessionLastUsed.get(session.id);
+      const dateLabel = getDateLabel(lastUsedTs ? new Date(lastUsedTs).toISOString() : session.updatedAt);
       if (dateLabel !== lastDateLabel) {
         const groupEl = document.createElement('div');
         groupEl.className = 'session-date-group';
@@ -286,7 +287,8 @@ function renderSessionList() {
     if (session.id === activeSessionId) el.classList.add('active');
     if (activeIds.has(session.id)) el.classList.add('running');
 
-    const timeStr = new Date(session.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const lastUsedTime = sessionLastUsed.get(session.id);
+    const timeStr = new Date(lastUsedTime || session.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     let tagsHtml = '';
     if (session.tags && session.tags.length > 0) {

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Agency are documented here.
+All notable changes to GroundControl are documented here.
 
 ## [0.3.0] - 2025-02-15
 
@@ -17,7 +17,7 @@ All notable changes to Agency are documented here.
 
 ### Added
 - Windows portable installer via electron-builder
-- Custom Agency window icon
+- Custom GroundControl window icon
 - Ctrl+V and Shift+Insert paste support in terminal
 - Notification bell and notification panel
 - Session tags and resource indexing (PRs, work items)
