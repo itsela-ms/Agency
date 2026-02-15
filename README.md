@@ -23,52 +23,25 @@ Copilot CLI supports `--resume <sessionId>`, but managing sessions means remembe
 
 ## Installation
 
-### Prerequisites
+### From Installer (recommended)
 
-- **Windows** (uses Windows-specific PTY and launch mechanisms)
-- **Node.js 18+** — [download](https://nodejs.org/)
-- **GitHub Copilot CLI** — install via WinGet:
-  ```
-  winget install github.copilot
-  ```
+Download the latest `Agency-x.x.x.exe` from [Releases](https://github.com/itsela-ms/Agency/releases) and run it — no installation needed, it's a portable executable.
 
-### Setup
+**Prerequisite:** [GitHub Copilot CLI](https://github.com/github/copilot-cli) — `winget install github.copilot`
+
+### From Source
 
 ```bash
 git clone https://github.com/itsela-ms/Agency.git
 cd Agency
 npm install
-```
 
-### Run
-
-```bash
-# Build and launch
+# Run directly
 npm start
+
+# Build Windows installer
+npm run dist
 ```
-
-### Desktop Shortcut (recommended)
-
-For a clean launch without a `cmd.exe` window flashing:
-
-```bash
-# Launch via VBS wrapper (no console window)
-npm run launch
-```
-
-To create a desktop shortcut, right-click on your desktop → New → Shortcut, and point it to:
-```
-wscript.exe "C:\path\to\Agency\launch.vbs"
-```
-Set "Start in" to the Agency folder. You can use the included `agency.ico` as the shortcut icon.
-
-### Scripts
-
-| Command | Description |
-|---------|-------------|
-| `npm start` | Build and run the app |
-| `npm run build` | Build renderer bundle only |
-| `npm run launch` | Build and launch without console window |
 
 ## Architecture
 
