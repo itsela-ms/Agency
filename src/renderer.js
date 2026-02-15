@@ -426,6 +426,15 @@ function createTerminal(sessionId) {
   terminal.onData((data) => window.api.writePty(sessionId, data));
   terminal.onResize(({ cols, rows }) => window.api.resizePty(sessionId, cols, rows));
 
+  // Suppress xterm's native paste handler — we handle paste in the custom key handler below.
+  // Without this, Ctrl+V fires both our handler AND xterm's paste listener, causing double paste.
+  if (terminal.textarea) {
+    terminal.textarea.addEventListener('paste', (e) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }, true);
+  }
+
   // Intercept paste shortcuts — xterm eats Ctrl+V / Shift+Insert as raw control chars
   // Also send CSI u sequence for Shift+Enter so the CLI can distinguish it from plain Enter
   terminal.attachCustomKeyEventHandler((e) => {
