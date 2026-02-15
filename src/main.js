@@ -48,6 +48,9 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
+
+  mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 }
 
 app.whenReady().then(async () => {
@@ -66,11 +69,9 @@ app.whenReady().then(async () => {
   await sessionService.cleanEmptySessions();
 
   notificationService = new NotificationService(NOTIFICATIONS_DIR);
-  notificationService.start();
-
-  createWindow();
 
   // Forward notifications to renderer + show OS notification
+  // Registered before .start() so _scanExisting() events aren't dropped (bug #8)
   notificationService.on('notification', (notification) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('notification:new', notification);
@@ -95,6 +96,10 @@ app.whenReady().then(async () => {
     });
     osNotif.show();
   });
+
+  notificationService.start();
+
+  createWindow();
 
   // IPC: Open/resume a session
   ipcMain.handle('session:open', (event, sessionId) => {
@@ -192,6 +197,12 @@ app.whenReady().then(async () => {
     });
   });
 
+  ptyManager.on('evicted', (sessionId) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('pty:evicted', sessionId);
+    }
+  });
+
   // IPC: Get session list (with tags and resources) — also caches for notification titles
   let allSessionsCache = [];
   ipcMain.handle('sessions:list', async () => {
@@ -233,6 +244,7 @@ app.on('window-all-closed', () => {
   tagIndexer.stop();
   resourceIndexer.stop();
   notificationService.stop();
+  if (ptyFlushTimer) { clearTimeout(ptyFlushTimer); ptyFlushTimer = null; }
   ptyManager.killAll();
   app.quit();
 });

@@ -11,6 +11,8 @@ let currentSidebarTab = 'active';
 let originalInstructions = '';
 let currentInstructions = '';
 let currentTheme = 'mocha';
+const openingSession = new Set();
+let creatingSession = false;
 
 // Theme palettes for xterm.js
 const XTERM_THEMES = {
@@ -91,6 +93,25 @@ async function init() {
     setTimeout(() => refreshSessionList(), 1000);
   });
 
+  window.api.onPtyEvicted?.((sessionId) => {
+    const entry = terminals.get(sessionId);
+    if (entry) {
+      entry.terminal.write('\r\n\x1b[90m[Session evicted to free capacity]\x1b[0m\r\n');
+      entry.terminal.dispose();
+      entry.wrapper.remove();
+      terminals.delete(sessionId);
+    }
+    const tab = document.querySelector(`.tab[data-session-id="${sessionId}"]`);
+    if (tab) tab.remove();
+    if (activeSessionId === sessionId) {
+      activeSessionId = null;
+      const remaining = document.querySelectorAll('.tab');
+      if (remaining.length > 0) switchToSession(remaining[remaining.length - 1].dataset.sessionId);
+      else { emptyState.classList.remove('hidden'); updateResourcePanel(null); }
+    }
+    renderSessionList();
+  });
+
   let resizeTimer = null;
   const resizeObserver = new ResizeObserver(() => {
     if (resizeTimer) clearTimeout(resizeTimer);
@@ -151,6 +172,14 @@ async function init() {
   document.getElementById('btn-clear-notifications').addEventListener('click', async () => {
     await window.api.clearAllNotifications();
     await refreshNotifications();
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!notificationPanel.classList.contains('hidden') && 
+        !notificationPanel.contains(e.target) && 
+        !e.target.closest('#btn-notifications')) {
+      notificationPanel.classList.add('hidden');
+    }
   });
 
   window.api.onNotification((notification) => {
@@ -267,8 +296,8 @@ function renderSessionList() {
       const prs = session.resources.filter(r => r.type === 'pr');
       const wis = session.resources.filter(r => r.type === 'workitem');
       const badges = [];
-      if (prs.length > 0) badges.push(`<span class="resource-badge pr" title="${prs.map(p => 'PR ' + p.id + (p.repo ? ' (' + p.repo + ')' : '')).join('\n')}">PR ${prs.map(p => p.id).join(', ')}</span>`);
-      if (wis.length > 0) badges.push(`<span class="resource-badge wi" title="${wis.map(w => 'WI ' + w.id).join('\n')}">WI ${wis.map(w => w.id).join(', ')}</span>`);
+      if (prs.length > 0) badges.push(`<span class="resource-badge pr" title="${escapeHtml(prs.map(p => 'PR ' + p.id + (p.repo ? ' (' + p.repo + ')' : '')).join('\n'))}">PR ${prs.map(p => p.id).join(', ')}</span>`);
+      if (wis.length > 0) badges.push(`<span class="resource-badge wi" title="${escapeHtml(wis.map(w => 'WI ' + w.id).join('\n'))}">WI ${wis.map(w => w.id).join(', ')}</span>`);
       if (badges.length > 0) resourcesHtml = '<div class="session-resources">' + badges.join('') + '</div>';
     }
 
@@ -279,20 +308,27 @@ function renderSessionList() {
       ${resourcesHtml}
     `;
 
-    // Add notification badge if session has unread notifications
-    window.api.getNotifications().then(notifications => {
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('role', 'button');
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter') openSession(session.id); });
+    el.addEventListener('click', () => openSession(session.id));
+    sessionList.appendChild(el);
+  }
+
+  window.api.getNotifications().then(notifications => {
+    sessionList.querySelectorAll('.session-item').forEach((el, idx) => {
+      const session = displayed[idx];
+      if (!session) return;
       const unread = notifications.filter(n => !n.read && n.sessionId === session.id).length;
       if (unread > 0) {
         const badge = document.createElement('span');
         badge.className = 'session-notification-badge';
         badge.textContent = unread;
-        el.querySelector('.session-title').appendChild(badge);
+        const titleEl = el.querySelector('.session-title');
+        if (titleEl) titleEl.appendChild(badge);
       }
     });
-
-    el.addEventListener('click', () => openSession(session.id));
-    sessionList.appendChild(el);
-  }
+  });
 }
 
 async function openSession(sessionId) {
@@ -300,26 +336,39 @@ async function openSession(sessionId) {
     switchToSession(sessionId);
     return;
   }
+  if (openingSession.has(sessionId)) return;
+  openingSession.add(sessionId);
 
-  await window.api.openSession(sessionId);
-  createTerminal(sessionId);
-  switchToSession(sessionId);
+  try {
+    await window.api.openSession(sessionId);
+    createTerminal(sessionId);
+    switchToSession(sessionId);
 
-  const session = allSessions.find(s => s.id === sessionId);
-  addTab(sessionId, session?.title || sessionId.substring(0, 8));
-  renderSessionList();
+    const session = allSessions.find(s => s.id === sessionId);
+    addTab(sessionId, session?.title || sessionId.substring(0, 8));
+    renderSessionList();
+  } finally {
+    openingSession.delete(sessionId);
+  }
 }
 
 async function newSession() {
-  const sessionId = await window.api.newSession();
-  createTerminal(sessionId);
-  switchToSession(sessionId);
-  addTab(sessionId, 'New Session');
+  if (creatingSession) return;
+  creatingSession = true;
 
-  currentSidebarTab = 'active';
-  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'active'));
+  try {
+    const sessionId = await window.api.newSession();
+    createTerminal(sessionId);
+    switchToSession(sessionId);
+    addTab(sessionId, 'New Session');
 
-  setTimeout(() => refreshSessionList(), 2000);
+    currentSidebarTab = 'active';
+    document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'active'));
+
+    setTimeout(() => refreshSessionList(), 2000);
+  } finally {
+    creatingSession = false;
+  }
 }
 
 function createTerminal(sessionId) {
@@ -336,7 +385,7 @@ function createTerminal(sessionId) {
 
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
-  terminal.loadAddon(new WebLinksAddon());
+  terminal.loadAddon(new WebLinksAddon((e, uri) => window.api.openExternal(uri)));
 
   const wrapper = document.createElement('div');
   wrapper.className = 'terminal-wrapper';
@@ -388,6 +437,8 @@ function addTab(sessionId, title) {
   const tab = document.createElement('div');
   tab.className = 'tab active';
   tab.dataset.sessionId = sessionId;
+  tab.setAttribute('tabindex', '0');
+  tab.setAttribute('role', 'tab');
 
   const titleSpan = document.createElement('span');
   titleSpan.className = 'tab-title';
@@ -403,13 +454,12 @@ function addTab(sessionId, title) {
   tab.appendChild(closeBtn);
   tab.addEventListener('click', () => switchToSession(sessionId));
 
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   // Insert before the resource toggle button
   terminalTabs.insertBefore(tab, btnToggleResources);
 }
 
-function closeTab(sessionId) {
-  window.api.killSession(sessionId);
+async function closeTab(sessionId) {
+  await window.api.killSession(sessionId);
 
   const entry = terminals.get(sessionId);
   if (entry) {
@@ -511,7 +561,9 @@ function updateResourcePanel(sessionId) {
   if (wikis.length > 0) {
     html += '<div class="resource-section"><div class="resource-section-title">Wiki Pages</div>';
     for (const wiki of wikis) {
-      const name = decodeURIComponent(wiki.url.split('/').pop() || wiki.url);
+      let name;
+      try { name = decodeURIComponent(wiki.url.split('/').pop() || wiki.url); }
+      catch { name = wiki.url.split('/').pop() || wiki.url; }
       html += `<a class="resource-link" href="${escapeHtml(wiki.url)}" target="_blank" title="${escapeHtml(wiki.url)}">
         <span class="resource-icon">📄</span>
         <span class="resource-label">${escapeHtml(name)}</span>
@@ -597,12 +649,18 @@ function renderMarkdown(md, changedLineNumbers) {
   }
 
   function processInline(text) {
-    return text
+    const codeSpans = [];
+    text = text
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/`([^`]+)`/g, (match, code) => {
+        codeSpans.push(`<code>${code}</code>`);
+        return `\x00CODE${codeSpans.length - 1}\x00`;
+      })
       .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.+?)\*/g, '<em>$1</em>');
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/\x00CODE(\d+)\x00/g, (_, i) => codeSpans[parseInt(i)]);
+    return text;
   }
 
   function closeOpenDetails() {
@@ -743,7 +801,11 @@ function importInstructions(mode) {
       renderMarkdown(text);
     } else {
       // Merge — append non-duplicate lines
-      const existingLines = new Set(currentInstructions.split('\n').map(l => l.trim()).filter(Boolean));
+      const existingLines = new Set(
+        currentInstructions.split('\n')
+          .map(l => l.trim())
+          .filter(l => l && l !== '---' && !l.match(/^#{1,6}\s/) && l !== '```')
+      );
       const newLines = text.split('\n');
       const toAdd = [];
       newLines.forEach(line => {
@@ -900,7 +962,7 @@ async function refreshNotifications() {
       const icon = NOTIF_ICONS[n.type] || 'ℹ️';
       const cls = n.read ? '' : ' unread';
       const time = formatNotifTime(n.timestamp);
-      return `<div class="notification-item${cls}" data-id="${n.id}" data-session="${n.sessionId || ''}">
+      return `<div class="notification-item${cls}" data-id="${n.id}" data-session="${escapeHtml(n.sessionId || '')}">
         <div class="notification-icon">${icon}</div>
         <div class="notification-content">
           <div class="notification-title">${escapeHtml(n.title)}</div>
@@ -987,10 +1049,16 @@ document.addEventListener('keydown', (e) => {
     switchToSession(tabs[next].dataset.sessionId);
   }
 
-  if (e.ctrlKey && e.key === 'w') { e.preventDefault(); if (activeSessionId) closeTab(activeSessionId); }
+  if (e.ctrlKey && e.key === 'w') {
+    e.preventDefault();
+    if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+    if (activeSessionId) closeTab(activeSessionId);
+  }
 
   if (e.key === 'Escape') {
-    if (!settingsOverlay.classList.contains('hidden')) {
+    if (!notificationPanel.classList.contains('hidden')) {
+      notificationPanel.classList.add('hidden');
+    } else if (!settingsOverlay.classList.contains('hidden')) {
       closeSettings();
     } else if (!instructionsPanel.classList.contains('hidden')) {
       hideInstructions();

@@ -2,11 +2,14 @@ const fs = require('fs');
 const path = require('path');
 const EventEmitter = require('events');
 
+const MAX_NOTIFICATIONS = 500;
+
 class NotificationService extends EventEmitter {
   constructor(notificationsDir) {
     super();
     this.notificationsDir = notificationsDir;
     this.watcher = null;
+    this.processedFiles = new Set();
     this.notifications = []; // { id, type, title, body, sessionId, timestamp, read }
     this.nextId = 1;
     this.stateFile = path.join(notificationsDir, '.state.json');
@@ -28,6 +31,10 @@ class NotificationService extends EventEmitter {
           // Small delay to ensure file is fully written
           setTimeout(() => this._processFile(filename), 100);
         }
+      });
+      this.watcher.on('error', (err) => {
+        console.error('[notifications] Watcher error:', err.message);
+        this.watcher = null;
       });
     } catch (err) {
       console.error('[notifications] Failed to start watcher:', err.message);
@@ -53,6 +60,7 @@ class NotificationService extends EventEmitter {
   }
 
   _processFile(filename) {
+    if (this.processedFiles.has(filename)) return;
     const filePath = path.join(this.notificationsDir, filename);
     try {
       if (!fs.existsSync(filePath)) return;
@@ -72,6 +80,8 @@ class NotificationService extends EventEmitter {
       this.notifications.push(notification);
       this.emit('notification', notification);
       this._saveState();
+
+      this.processedFiles.add(filename);
 
       // Consume the file
       try { fs.unlinkSync(filePath); } catch {}
@@ -134,8 +144,8 @@ class NotificationService extends EventEmitter {
     try {
       if (fs.existsSync(this.stateFile)) {
         const data = JSON.parse(fs.readFileSync(this.stateFile, 'utf8'));
-        this.notifications = data.notifications || [];
-        this.nextId = data.nextId || 1;
+        this.notifications = Array.isArray(data.notifications) ? data.notifications : [];
+        this.nextId = typeof data.nextId === 'number' ? data.nextId : 1;
       }
     } catch {
       this.notifications = [];
@@ -145,6 +155,9 @@ class NotificationService extends EventEmitter {
 
   _saveState() {
     try {
+      if (this.notifications.length > MAX_NOTIFICATIONS) {
+        this.notifications = this.notifications.slice(-MAX_NOTIFICATIONS);
+      }
       fs.writeFileSync(this.stateFile, JSON.stringify({
         notifications: this.notifications,
         nextId: this.nextId,

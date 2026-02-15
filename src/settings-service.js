@@ -38,9 +38,12 @@ class SettingsService {
   }
 
   async update(partial) {
-    Object.assign(this.settings, partial);
+    const allowed = Object.keys(DEFAULTS);
+    const filtered = {};
+    for (const key of allowed) { if (key in partial) filtered[key] = partial[key]; }
+    Object.assign(this.settings, filtered);
     await this.save();
-    return this.settings;
+    return { ...this.settings };
   }
 }
 

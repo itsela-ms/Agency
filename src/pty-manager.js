@@ -24,25 +24,38 @@ class PtyManager extends EventEmitter {
       return sessionId;
     }
 
+    // Bug #26: clean up dead entry before respawning
+    if (this.sessions.has(sessionId)) {
+      this.sessions.delete(sessionId);
+    }
+
     // Evict oldest if at max capacity
     this._evictIfNeeded();
 
-    const ptyProcess = pty.spawn(this.copilotPath, ['--resume', sessionId, '--yolo'], {
-      name: 'xterm-256color',
-      cols: 120,
-      rows: 40,
-      cwd: process.env.USERPROFILE,
-      env: { ...process.env, TERM: 'xterm-256color' }
-    });
+    let ptyProcess;
+    try {
+      ptyProcess = pty.spawn(this.copilotPath, ['--resume', sessionId, '--yolo'], {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 40,
+        cwd: process.env.USERPROFILE,
+        env: { ...process.env, TERM: 'xterm-256color' }
+      });
+    } catch (err) {
+      throw new Error(`Failed to spawn PTY for session ${sessionId}: ${err.message}`);
+    }
 
     ptyProcess.onData((data) => {
-      this.emit('data', sessionId, data);
+      const entry = this.sessions.get(sessionId);
+      if (entry && entry.alive) this.emit('data', sessionId, data);
     });
 
     ptyProcess.onExit(({ exitCode }) => {
-      this.emit('exit', sessionId, exitCode);
       const entry = this.sessions.get(sessionId);
-      if (entry) entry.alive = false;
+      if (entry && entry.alive) {
+        entry.alive = false;
+        this.emit('exit', sessionId, exitCode);
+      }
     });
 
     this.sessions.set(sessionId, {
@@ -59,22 +72,30 @@ class PtyManager extends EventEmitter {
 
     this._evictIfNeeded();
 
-    const ptyProcess = pty.spawn(this.copilotPath, ['--resume', sessionId, '--yolo'], {
-      name: 'xterm-256color',
-      cols: 120,
-      rows: 40,
-      cwd: process.env.USERPROFILE,
-      env: { ...process.env, TERM: 'xterm-256color' }
-    });
+    let ptyProcess;
+    try {
+      ptyProcess = pty.spawn(this.copilotPath, ['--resume', sessionId, '--yolo'], {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 40,
+        cwd: process.env.USERPROFILE,
+        env: { ...process.env, TERM: 'xterm-256color' }
+      });
+    } catch (err) {
+      throw new Error(`Failed to spawn PTY for session ${sessionId}: ${err.message}`);
+    }
 
     ptyProcess.onData((data) => {
-      this.emit('data', sessionId, data);
+      const entry = this.sessions.get(sessionId);
+      if (entry && entry.alive) this.emit('data', sessionId, data);
     });
 
     ptyProcess.onExit(({ exitCode }) => {
-      this.emit('exit', sessionId, exitCode);
       const entry = this.sessions.get(sessionId);
-      if (entry) entry.alive = false;
+      if (entry && entry.alive) {
+        entry.alive = false;
+        this.emit('exit', sessionId, exitCode);
+      }
     });
 
     this.sessions.set(sessionId, {
@@ -133,13 +154,16 @@ class PtyManager extends EventEmitter {
   }
 
   _evictIfNeeded() {
-    const alive = [...this.sessions.entries()].filter(([, e]) => e.alive);
-    if (alive.length >= this.maxConcurrent) {
-      alive.sort((a, b) => a[1].openedAt - b[1].openedAt);
-      const [oldestId, oldestEntry] = alive[0];
-      try { oldestEntry.pty.kill(); } catch {}
+    let alive = [...this.sessions.entries()].filter(([, e]) => e.alive);
+    alive.sort((a, b) => a[1].openedAt - b[1].openedAt);
+    let i = 0;
+    while (alive.length - i >= this.maxConcurrent) {
+      const [oldestId, oldestEntry] = alive[i];
       oldestEntry.alive = false;
+      this.emit('evicted', oldestId);
+      try { oldestEntry.pty.kill(); } catch {}
       this.sessions.delete(oldestId);
+      i++;
     }
   }
 }

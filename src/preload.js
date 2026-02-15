@@ -20,6 +20,11 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('pty:exit', listener);
     return () => ipcRenderer.removeListener('pty:exit', listener);
   },
+  onPtyEvicted: (callback) => {
+    const listener = (event, sessionId) => callback(sessionId);
+    ipcRenderer.on('pty:evicted', listener);
+    return () => ipcRenderer.removeListener('pty:evicted', listener);
+  },
 
   // Active sessions
   getActiveSessions: () => ipcRenderer.invoke('pty:active'),

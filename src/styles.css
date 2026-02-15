@@ -25,6 +25,7 @@
   --term-fg: #cdd6f4;
   --term-cursor: #f5e0dc;
   --term-selection: #45475a;
+  --bg-hover: rgba(137, 180, 250, 0.08);
 }
 
 [data-theme="latte"] {
@@ -48,6 +49,7 @@
   --term-fg: #4c4f69;
   --term-cursor: #dc8a78;
   --term-selection: #acb0be;
+  --bg-hover: rgba(30, 102, 245, 0.08);
 }
 
 body {
@@ -231,11 +233,11 @@ body {
 }
 
 .session-item:hover {
-  background: rgba(137, 180, 250, 0.05);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 
 .session-item.active {
-  background: rgba(137, 180, 250, 0.1);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   border-left-color: var(--accent);
 }
 
@@ -391,7 +393,7 @@ body {
 
 .tab:hover {
   color: var(--text);
-  background: rgba(137, 180, 250, 0.05);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 
 .tab.active {
@@ -422,7 +424,7 @@ body {
 
 .tab-close:hover {
   opacity: 1 !important;
-  background: rgba(243, 139, 168, 0.2);
+  background: color-mix(in srgb, var(--red) 20%, transparent);
   color: var(--red);
 }
 
@@ -928,7 +930,7 @@ body {
   top: -2px;
   right: -2px;
   background: var(--red, #f38ba8);
-  color: #fff;
+  color: var(--bg-overlay);
   font-size: 10px;
   font-weight: 700;
   min-width: 16px;
@@ -1073,7 +1075,7 @@ body {
 /* Session badge in sidebar */
 .session-notification-badge {
   background: var(--red, #f38ba8);
-  color: #fff;
+  color: var(--bg-overlay);
   font-size: 10px;
   font-weight: 700;
   min-width: 16px;
@@ -1274,4 +1276,9 @@ body {
 #btn-toggle-resources.active {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+button:focus-visible, .tab:focus-visible, .session-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }

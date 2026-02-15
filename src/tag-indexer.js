@@ -91,7 +91,13 @@ class TagIndexer {
 
   async rebuildIfStale() {
     const entries = await fs.promises.readdir(this.sessionStateDir, { withFileTypes: true });
+    const currentIds = new Set(entries.filter(e => e.isDirectory()).map(e => e.name));
     let updated = false;
+
+    // Prune orphaned cache entries
+    for (const id of Object.keys(this.cache)) {
+      if (!currentIds.has(id)) { delete this.cache[id]; updated = true; }
+    }
 
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
