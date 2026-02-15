@@ -32,6 +32,7 @@ function createWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 600,
+    icon: path.join(__dirname, '..', 'agency.ico'),
     backgroundColor: bg,
     frame: false,
     titleBarStyle: 'hidden',
