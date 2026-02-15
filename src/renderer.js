@@ -349,6 +349,19 @@ function createTerminal(sessionId) {
   terminal.onData((data) => window.api.writePty(sessionId, data));
   terminal.onResize(({ cols, rows }) => window.api.resizePty(sessionId, cols, rows));
 
+  // Intercept paste shortcuts — xterm eats Ctrl+V / Shift+Insert as raw control chars
+  terminal.attachCustomKeyEventHandler((e) => {
+    if (e.type !== 'keydown') return true;
+    const isPaste = (e.ctrlKey && e.key === 'v') || (e.shiftKey && e.key === 'Insert');
+    if (isPaste) {
+      navigator.clipboard.readText().then(text => {
+        if (text) window.api.writePty(sessionId, text);
+      }).catch(() => {});
+      return false;
+    }
+    return true;
+  });
+
   terminals.set(sessionId, { terminal, fitAddon, wrapper });
 }
 
