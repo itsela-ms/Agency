@@ -12,6 +12,7 @@ let originalInstructions = '';
 let currentInstructions = '';
 let currentTheme = 'mocha';
 const openingSession = new Set();
+const sessionLastUsed = new Map();
 let creatingSession = false;
 
 // Theme palettes for xterm.js
@@ -234,6 +235,7 @@ function renderSessionList() {
   let displayed;
   if (currentSidebarTab === 'active') {
     displayed = allSessions.filter(s => activeIds.has(s.id));
+    displayed.sort((a, b) => (sessionLastUsed.get(b.id) || 0) - (sessionLastUsed.get(a.id) || 0));
   } else {
     displayed = allSessions;
   }
@@ -440,6 +442,7 @@ function switchToSession(sessionId) {
   }
 
   activeSessionId = sessionId;
+  sessionLastUsed.set(sessionId, Date.now());
 
   const entry = terminals.get(sessionId);
   if (entry) {
