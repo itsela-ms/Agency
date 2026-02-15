@@ -183,6 +183,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('notifications:dismiss', (event, id) => notificationService.dismiss(id));
   ipcMain.handle('notifications:clearAll', () => notificationService.clearAll());
 
+  // IPC: App info
+  ipcMain.handle('app:getVersion', () => app.getVersion());
+  ipcMain.handle('app:getChangelog', () => {
+    try {
+      return fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf-8');
+    } catch { return ''; }
+  });
+
   // Auto-notify on session exit
   ptyManager.on('exit', (sessionId, exitCode) => {
     if (mainWindow && !mainWindow.isDestroyed()) {

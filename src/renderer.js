@@ -378,8 +378,19 @@ async function newSession() {
     document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'active'));
     renderSessionList();
 
-    // Background refresh to pick up real metadata once the CLI writes it
-    setTimeout(() => refreshSessionList(), 3000);
+    // Retry refresh to pick up real metadata once the CLI writes it
+    for (const delay of [3000, 8000, 15000]) {
+      setTimeout(() => {
+        if (terminals.has(sessionId)) refreshSessionList();
+      }, delay);
+    }
+    // Continue polling every 15s until title is no longer "New Session"
+    const titlePoll = setInterval(() => {
+      if (!terminals.has(sessionId)) { clearInterval(titlePoll); return; }
+      const session = allSessions.find(s => s.id === sessionId);
+      if (session && session.title !== 'New Session') { clearInterval(titlePoll); return; }
+      refreshSessionList();
+    }, 15000);
   } finally {
     creatingSession = false;
   }

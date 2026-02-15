@@ -40,6 +40,10 @@ contextBridge.exposeInMainWorld('api', {
   // Shell
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
 
+  // App info
+  getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  getChangelog: () => ipcRenderer.invoke('app:getChangelog'),
+
   // Notifications
   getNotifications: () => ipcRenderer.invoke('notifications:getAll'),
   getUnreadCount: () => ipcRenderer.invoke('notifications:getUnreadCount'),
