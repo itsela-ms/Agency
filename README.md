@@ -1,5 +1,7 @@
 # GroundControl
 
+> Ground Control to Major Tom — your mission control for GitHub Copilot CLI sessions.
+
 Session manager for GitHub Copilot CLI — visual overview, instant switching, and easy resume instead of hunting for session IDs.
 
 ![Windows](https://img.shields.io/badge/platform-Windows-blue)
@@ -7,7 +9,7 @@ Session manager for GitHub Copilot CLI — visual overview, instant switching, a
 
 ## The Problem
 
-Copilot CLI supports `--resume <sessionId>`, but managing sessions means remembering UUIDs, digging through `~/.copilot/session-state/`, and having no way to see what's running. GroundControl gives you a GUI for all of that.
+Copilot CLI supports `--resume <sessionId>`, but managing sessions means remembering UUIDs, digging through `~/.copilot/session-state/`, and having no way to see what's running. GroundControl gives you a visual command center for all of that.
 
 ## Features
 
