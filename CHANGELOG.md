@@ -2,7 +2,7 @@
 
 All notable changes to Agency are documented here.
 
-## [1.1.0] - 2025-02-15
+## [0.3.0] - 2025-02-15
 
 ### Added
 - Version and changelog visible in Settings panel
@@ -13,7 +13,7 @@ All notable changes to Agency are documented here.
 - Tab title not updating after session gets a title
 - Startup crash and close ReferenceError
 
-## [1.0.0] - 2025-02-01
+## [0.2.0] - 2025-02-01
 
 ### Added
 - Windows portable installer via electron-builder
