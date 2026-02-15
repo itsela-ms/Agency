@@ -220,6 +220,11 @@ function closeSettings() {
 
 async function refreshSessionList() {
   allSessions = await window.api.listSessions();
+  for (const session of allSessions) {
+    if (terminals.has(session.id)) {
+      updateTabTitle(session.id, session.title);
+    }
+  }
   renderSessionList();
 }
 
@@ -362,10 +367,17 @@ async function newSession() {
     switchToSession(sessionId);
     addTab(sessionId, 'New Session');
 
+    // Inject placeholder so the active list renders immediately
+    if (!allSessions.find(s => s.id === sessionId)) {
+      allSessions.unshift({ id: sessionId, title: 'New Session', updatedAt: new Date().toISOString(), tags: [], resources: [] });
+    }
+
     currentSidebarTab = 'active';
     document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'active'));
+    renderSessionList();
 
-    setTimeout(() => refreshSessionList(), 2000);
+    // Background refresh to pick up real metadata once the CLI writes it
+    setTimeout(() => refreshSessionList(), 3000);
   } finally {
     creatingSession = false;
   }
@@ -399,6 +411,7 @@ function createTerminal(sessionId) {
   terminal.onResize(({ cols, rows }) => window.api.resizePty(sessionId, cols, rows));
 
   // Intercept paste shortcuts — xterm eats Ctrl+V / Shift+Insert as raw control chars
+  // Also send CSI u sequence for Shift+Enter so the CLI can distinguish it from plain Enter
   terminal.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true;
     const isPaste = (e.ctrlKey && e.key === 'v') || (e.shiftKey && e.key === 'Insert');
@@ -406,6 +419,10 @@ function createTerminal(sessionId) {
       navigator.clipboard.readText().then(text => {
         if (text) window.api.writePty(sessionId, text);
       }).catch(() => {});
+      return false;
+    }
+    if (e.shiftKey && e.key === 'Enter') {
+      window.api.writePty(sessionId, '\x1b[13;2u');
       return false;
     }
     return true;
@@ -469,6 +486,16 @@ function addTab(sessionId, title) {
 
   // Insert before the resource toggle button
   terminalTabs.insertBefore(tab, btnToggleResources);
+}
+
+function updateTabTitle(sessionId, title) {
+  const tab = document.querySelector(`.tab[data-session-id="${sessionId}"] .tab-title`);
+  if (!tab) return;
+  const display = title.length > 25 ? title.substring(0, 22) + '...' : title;
+  if (tab.textContent !== display) {
+    tab.textContent = display;
+    tab.title = title;
+  }
 }
 
 async function closeTab(sessionId) {
