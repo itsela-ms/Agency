@@ -191,7 +191,22 @@ function closeSettings() {
 
 async function refreshSessionList() {
   allSessions = await window.api.listSessions();
+  updateTabTitles();
   renderSessionList();
+}
+
+function updateTabTitles() {
+  for (const session of allSessions) {
+    const tab = document.querySelector(`.tab[data-session-id="${session.id}"]`);
+    if (!tab) continue;
+    const titleSpan = tab.querySelector('.tab-title');
+    if (!titleSpan) continue;
+    const truncated = session.title.length > 25 ? session.title.substring(0, 22) + '...' : session.title;
+    if (titleSpan.textContent !== truncated) {
+      titleSpan.textContent = truncated;
+      titleSpan.title = session.title;
+    }
+  }
 }
 
 function renderSessionList() {
@@ -316,10 +331,31 @@ async function newSession() {
   switchToSession(sessionId);
   addTab(sessionId, 'New Session');
 
+  // Inject placeholder so sidebar shows it immediately
+  allSessions.unshift({
+    id: sessionId,
+    title: 'New Session',
+    cwd: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    tags: [],
+    resources: []
+  });
+
   currentSidebarTab = 'active';
   document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'active'));
+  renderSessionList();
 
-  setTimeout(() => refreshSessionList(), 2000);
+  // Poll until the session gets a real title from the backend
+  let polls = 0;
+  const pollInterval = setInterval(async () => {
+    polls++;
+    await refreshSessionList();
+    const session = allSessions.find(s => s.id === sessionId);
+    if ((session && session.title !== 'New Session' && !session.title.startsWith('Session ')) || polls >= 30) {
+      clearInterval(pollInterval);
+    }
+  }, 2000);
 }
 
 function createTerminal(sessionId) {
