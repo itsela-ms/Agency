@@ -455,6 +455,12 @@ function switchToSession(sessionId) {
   activeSessionId = sessionId;
   sessionLastUsed.set(sessionId, Date.now());
 
+  // Ensure sidebar shows the active tab when switching to a session
+  if (currentSidebarTab !== 'active') {
+    currentSidebarTab = 'active';
+    document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'active'));
+  }
+
   const entry = terminals.get(sessionId);
   if (entry) {
     entry.wrapper.classList.add('visible');
