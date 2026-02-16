@@ -11,6 +11,7 @@ class UpdateService {
 
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
+    autoUpdater.allowPrerelease = true;
 
     autoUpdater.on('checking-for-update', () => {
       this.status = 'checking';
