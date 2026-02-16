@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   // Sessions
   listSessions: () => ipcRenderer.invoke('sessions:list'),
+  renameSession: (sessionId, title) => ipcRenderer.invoke('session:rename', sessionId, title),
   openSession: (sessionId) => ipcRenderer.invoke('session:open', sessionId),
   newSession: () => ipcRenderer.invoke('session:new'),
   killSession: (sessionId) => ipcRenderer.invoke('pty:kill', sessionId),

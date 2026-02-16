@@ -22,7 +22,21 @@ class SessionService {
         const yamlContent = await fs.promises.readFile(yamlPath, 'utf8');
         const meta = yaml.load(yamlContent);
 
-        let title = meta.summary || null;
+        let title = null;
+        let isCustomTitle = false;
+
+        // Check for manual rename (takes priority, never overridden)
+        const customTitlePath = path.join(sessionDir, '.deepsky-title');
+        try {
+          title = (await fs.promises.readFile(customTitlePath, 'utf8')).trim();
+          isCustomTitle = !!title;
+        } catch {
+          // No custom title — fall through to auto-detection
+        }
+
+        if (!title) {
+          title = meta.summary || null;
+        }
 
         // If no summary, try to extract from first user message in events.jsonl
         if (!title) {
@@ -33,21 +47,23 @@ class SessionService {
           title = `Session ${entry.name.substring(0, 8)}`;
         }
 
-        // Clean up titles that are raw prompts (quoted strings from knowledge queries)
-        if (title.startsWith('"')) {
-          title = title.replace(/^"/, '').replace(/"$/, '');
-          if (title.startsWith("Use the 'knowledge-based-answer'")) {
-            const match = title.match(/answer:\s*(.+)/);
-            title = match ? match[1].substring(0, 60) : title.substring(0, 60);
+        if (!isCustomTitle) {
+          // Clean up titles that are raw prompts (quoted strings from knowledge queries)
+          if (title.startsWith('"')) {
+            title = title.replace(/^"/, '').replace(/"$/, '');
+            if (title.startsWith("Use the 'knowledge-based-answer'")) {
+              const match = title.match(/answer:\s*(.+)/);
+              title = match ? match[1].substring(0, 60) : title.substring(0, 60);
+            }
+            if (title.startsWith('Follow the workflow')) {
+              title = title.substring(0, 60);
+            }
           }
-          if (title.startsWith('Follow the workflow')) {
-            title = title.substring(0, 60);
-          }
-        }
 
-        // Truncate long titles
-        if (title.length > 70) {
-          title = title.substring(0, 67) + '...';
+          // Truncate long titles
+          if (title.length > 70) {
+            title = title.substring(0, 67) + '...';
+          }
         }
 
         const stat = await fs.promises.stat(sessionDir);
@@ -163,6 +179,10 @@ class SessionService {
 
     console.log(`Cleaned ${cleaned} empty sessions`);
     return cleaned;
+  }
+  async renameSession(sessionId, title) {
+    const customTitlePath = path.join(this.dir, sessionId, '.deepsky-title');
+    await fs.promises.writeFile(customTitlePath, title.trim(), 'utf8');
   }
 }
 

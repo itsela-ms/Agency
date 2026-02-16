@@ -290,6 +290,19 @@ body {
   margin-bottom: 2px;
 }
 
+.session-rename-input {
+  width: 100%;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--bg-sidebar);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 1px 4px;
+  outline: none;
+  box-sizing: border-box;
+}
+
 .session-meta {
   font-size: 11px;
   color: var(--text-dim);

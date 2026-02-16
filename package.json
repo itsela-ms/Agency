@@ -1,5 +1,5 @@
 {
-  "name": "groundcontrol",
+  "name": "deepsky",
   "version": "0.5.0",
   "description": "Session manager for GitHub Copilot CLI — visual overview, instant switching, and easy resume instead of hunting for session IDs.",
   "main": "src/main.js",
@@ -12,8 +12,8 @@
     "dist": "npm run build && electron-builder --win"
   },
   "build": {
-    "appId": "com.itsela.groundcontrol",
-    "productName": "GroundControl",
+    "appId": "com.itsela.deepsky",
+    "productName": "DeepSky",
     "npmRebuild": false,
     "directories": {
       "output": "release"
@@ -26,7 +26,7 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "groundcontrol.ico"
+      "icon": "deepsky.ico"
     },
     "nsis": {
       "oneClick": true,
@@ -36,7 +36,7 @@
     "publish": {
       "provider": "github",
       "owner": "itsela-ms",
-      "repo": "GroundControl"
+      "repo": "DeepSky"
     },
     "forceCodeSigning": false
   },

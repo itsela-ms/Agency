@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to GroundControl are documented here.
+All notable changes to DeepSky are documented here.
 
 ## [0.4.0] - 2025-02-15
 
@@ -26,7 +26,7 @@ All notable changes to GroundControl are documented here.
 
 ### Added
 - Windows portable installer via electron-builder
-- Custom GroundControl window icon
+- Custom DeepSky window icon
 - Ctrl+V and Shift+Insert paste support in terminal
 - Notification bell and notification panel
 - Session tags and resource indexing (PRs, work items)

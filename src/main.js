@@ -59,7 +59,7 @@ function createWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    icon: path.join(__dirname, '..', 'groundcontrol.ico'),
+    icon: path.join(__dirname, '..', 'deepsky.ico'),
     backgroundColor: bg,
     frame: false,
     titleBarStyle: 'hidden',
@@ -263,6 +263,10 @@ app.whenReady().then(async () => {
       resources: resourceIndexer.getResourcesForSession(s.id)
     }));
     return allSessionsCache;
+  });
+
+  ipcMain.handle('session:rename', async (event, sessionId, title) => {
+    await sessionService.renameSession(sessionId, title);
   });
 
   // Forward pty output to renderer — batch at 16ms intervals to prevent IPC flooding

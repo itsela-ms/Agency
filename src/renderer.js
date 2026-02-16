@@ -390,6 +390,14 @@ function renderSessionList() {
     el.setAttribute('role', 'button');
     el.addEventListener('keydown', (e) => { if (e.key === 'Enter') openSession(session.id); });
     el.addEventListener('click', () => openSession(session.id));
+
+    // Double-click to rename
+    const titleEl = el.querySelector('.session-title');
+    titleEl.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      startRenameSession(session.id, titleEl);
+    });
+
     sessionList.appendChild(el);
   }
 
@@ -407,6 +415,37 @@ function renderSessionList() {
       }
     });
   });
+}
+
+function startRenameSession(sessionId, titleEl) {
+  const currentTitle = titleEl.textContent;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'session-rename-input';
+  input.value = currentTitle;
+
+  titleEl.textContent = '';
+  titleEl.appendChild(input);
+  input.focus();
+  input.select();
+
+  const commit = async () => {
+    const newTitle = input.value.trim();
+    if (newTitle && newTitle !== currentTitle) {
+      await window.api.renameSession(sessionId, newTitle);
+      await refreshSessionList();
+    } else {
+      titleEl.textContent = currentTitle;
+    }
+  };
+
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.value = currentTitle; input.blur(); }
+    e.stopPropagation();
+  });
+  input.addEventListener('click', (e) => e.stopPropagation());
 }
 
 async function openSession(sessionId) {
