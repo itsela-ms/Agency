@@ -184,6 +184,11 @@ class SessionService {
     const customTitlePath = path.join(this.dir, sessionId, '.deepsky-title');
     await fs.promises.writeFile(customTitlePath, title.trim(), 'utf8');
   }
+
+  async deleteSession(sessionId) {
+    const sessionDir = path.join(this.dir, sessionId);
+    await fs.promises.rm(sessionDir, { recursive: true, force: true });
+  }
 }
 
 module.exports = SessionService;

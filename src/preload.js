@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('api', {
   // Sessions
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   renameSession: (sessionId, title) => ipcRenderer.invoke('session:rename', sessionId, title),
+  deleteSession: (sessionId) => ipcRenderer.invoke('session:delete', sessionId),
   openSession: (sessionId) => ipcRenderer.invoke('session:open', sessionId),
   newSession: () => ipcRenderer.invoke('session:new'),
   killSession: (sessionId) => ipcRenderer.invoke('pty:kill', sessionId),

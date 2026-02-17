@@ -15,6 +15,11 @@ const openingSession = new Set();
 const sessionLastUsed = new Map();
 let creatingSession = false;
 
+function saveTabState() {
+  const openTabs = [...terminals.keys()];
+  window.api.updateSettings({ openTabs, activeTab: activeSessionId });
+}
+
 // Theme palettes for xterm.js
 const XTERM_THEMES = {
   mocha: {
@@ -60,7 +65,7 @@ const notificationPanel = document.getElementById('notification-panel');
 const notificationListEl = document.getElementById('notification-list');
 const toastContainer = document.getElementById('toast-container');
 
-const NOTIF_ICONS = { 'task-done': '✅', 'needs-input': '⏳', 'error': '❌', 'info': 'ℹ️' };
+const NOTIF_ICONS = { 'task-done': '✓', 'needs-input': '◌', 'error': '!', 'info': '·' };
 
 // Initialize
 async function init() {
@@ -112,6 +117,7 @@ async function init() {
       else { emptyState.classList.remove('hidden'); updateResourcePanel(null); }
     }
     renderSessionList();
+    saveTabState();
   });
 
   let resizeTimer = null;
@@ -146,10 +152,8 @@ async function init() {
   settingsOverlay.querySelector('.settings-close').addEventListener('click', closeSettings);
   settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) closeSettings(); });
 
-  // Update buttons
+  // Update button
   document.getElementById('btn-check-update').addEventListener('click', () => window.api.checkForUpdates());
-  document.getElementById('btn-download-update').addEventListener('click', () => window.api.downloadUpdate());
-  document.getElementById('btn-install-update').addEventListener('click', () => window.api.installUpdate());
   window.api.onUpdateStatus(handleUpdateStatus);
 
   // Theme switcher
@@ -202,6 +206,19 @@ async function init() {
   });
 
   await refreshNotifications();
+
+  // Restore previously open tabs
+  if (settings.openTabs && settings.openTabs.length > 0) {
+    const validIds = new Set(allSessions.map(s => s.id));
+    const tabsToRestore = settings.openTabs.filter(id => validIds.has(id));
+    for (const sessionId of tabsToRestore) {
+      try { await openSession(sessionId); } catch {}
+    }
+    // Switch to the previously active tab
+    if (settings.activeTab && terminals.has(settings.activeTab)) {
+      switchToSession(settings.activeTab);
+    }
+  }
 }
 
 function applyTheme(theme) {
@@ -240,13 +257,9 @@ function handleUpdateStatus(data) {
   const progressEl = document.getElementById('update-progress');
   const progressBar = document.getElementById('update-progress-bar');
   const btnCheck = document.getElementById('btn-check-update');
-  const btnDownload = document.getElementById('btn-download-update');
-  const btnInstall = document.getElementById('btn-install-update');
 
   statusEl.classList.remove('hidden');
   progressEl.classList.add('hidden');
-  btnDownload.classList.add('hidden');
-  btnInstall.classList.add('hidden');
   btnCheck.disabled = false;
 
   switch (data.status) {
@@ -255,9 +268,11 @@ function handleUpdateStatus(data) {
       btnCheck.disabled = true;
       break;
     case 'available':
-      statusEl.textContent = `Update available: v${data.info?.version}`;
-      statusEl.className = 'update-status update-available';
-      btnDownload.classList.remove('hidden');
+      statusEl.textContent = `Downloading v${data.info?.version}…`;
+      statusEl.className = 'update-status';
+      btnCheck.disabled = true;
+      // Auto-start download
+      window.api.downloadUpdate();
       break;
     case 'not-available':
       statusEl.textContent = 'You\'re on the latest version.';
@@ -272,7 +287,7 @@ function handleUpdateStatus(data) {
     case 'downloaded':
       statusEl.textContent = `v${data.info?.version} ready to install.`;
       statusEl.className = 'update-status update-available';
-      btnInstall.classList.remove('hidden');
+      promptInstallUpdate(data.info?.version);
       break;
     case 'error':
       statusEl.textContent = `Update error: ${data.error}`;
@@ -282,6 +297,36 @@ function handleUpdateStatus(data) {
       statusEl.classList.add('hidden');
       break;
   }
+}
+
+let updatePromptShown = false;
+function promptInstallUpdate(version) {
+  if (updatePromptShown) return;
+  updatePromptShown = true;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'confirm-overlay';
+  overlay.innerHTML = `
+    <div class="confirm-dialog">
+      <h3>Update ready</h3>
+      <p>v${escapeHtml(version || 'new')} has been downloaded. Restart now to apply the update?</p>
+      <div class="confirm-actions">
+        <button class="btn-secondary confirm-cancel">Later</button>
+        <button class="btn-primary confirm-install">Restart & Update</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+
+  const cleanup = () => { overlay.remove(); updatePromptShown = false; };
+  overlay.querySelector('.confirm-cancel').addEventListener('click', cleanup);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+  overlay.querySelector('.confirm-install').addEventListener('click', () => {
+    window.api.installUpdate();
+  });
+
+  const onKey = (e) => { if (e.key === 'Escape') { cleanup(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
 }
 
 function closeSettings() {
@@ -380,10 +425,11 @@ function renderSessionList() {
     }
 
     el.innerHTML = `
-      <div class="session-title">${escapeHtml(session.title)}</div>
+      <div class="session-title" data-title="${escapeHtml(session.title)}">${escapeHtml(session.title)}</div>
       <div class="session-meta"><span>${timeStr}</span></div>
       ${tagsHtml}
       ${resourcesHtml}
+      ${currentSidebarTab === 'history' ? '<button class="session-delete" title="Delete session">✕</button>' : ''}
     `;
 
     el.setAttribute('tabindex', '0');
@@ -391,10 +437,26 @@ function renderSessionList() {
     el.addEventListener('keydown', (e) => { if (e.key === 'Enter') openSession(session.id); });
     el.addEventListener('click', () => openSession(session.id));
 
-    // Double-click to rename
+    // Delete button (history tab only)
+    const deleteBtn = el.querySelector('.session-delete');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        confirmDeleteSession(session.id, session.title);
+      });
+    }
+
+    // Double-click title to rename (with delayed click to avoid race)
     const titleEl = el.querySelector('.session-title');
+    let titleClickTimeout = null;
+    titleEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (titleClickTimeout) { clearTimeout(titleClickTimeout); titleClickTimeout = null; return; }
+      titleClickTimeout = setTimeout(() => { titleClickTimeout = null; openSession(session.id); }, 250);
+    });
     titleEl.addEventListener('dblclick', (e) => {
       e.stopPropagation();
+      if (titleClickTimeout) { clearTimeout(titleClickTimeout); titleClickTimeout = null; }
       startRenameSession(session.id, titleEl);
     });
 
@@ -418,7 +480,7 @@ function renderSessionList() {
 }
 
 function startRenameSession(sessionId, titleEl) {
-  const currentTitle = titleEl.textContent;
+  const currentTitle = titleEl.dataset.title || titleEl.textContent;
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'session-rename-input';
@@ -448,6 +510,40 @@ function startRenameSession(sessionId, titleEl) {
   input.addEventListener('click', (e) => e.stopPropagation());
 }
 
+function confirmDeleteSession(sessionId, title) {
+  const overlay = document.createElement('div');
+  overlay.className = 'confirm-overlay';
+  overlay.innerHTML = `
+    <div class="confirm-dialog">
+      <h3>Delete session?</h3>
+      <p>This will permanently delete "<strong>${escapeHtml(title)}</strong>" and all its data. This cannot be undone.</p>
+      <div class="confirm-actions">
+        <button class="btn-secondary confirm-cancel">Cancel</button>
+        <button class="btn-danger confirm-delete">Delete</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+
+  const cleanup = () => overlay.remove();
+  overlay.querySelector('.confirm-cancel').addEventListener('click', cleanup);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+
+  overlay.querySelector('.confirm-delete').addEventListener('click', async () => {
+    cleanup();
+    // Close tab if open
+    if (terminals.has(sessionId)) {
+      await closeTab(sessionId);
+    }
+    await window.api.deleteSession(sessionId);
+    await refreshSessionList();
+  });
+
+  // Esc to cancel
+  const onKey = (e) => { if (e.key === 'Escape') { cleanup(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
+}
+
 async function openSession(sessionId) {
   if (terminals.has(sessionId)) {
     switchToSession(sessionId);
@@ -464,6 +560,7 @@ async function openSession(sessionId) {
     const session = allSessions.find(s => s.id === sessionId);
     addTab(sessionId, session?.title || sessionId.substring(0, 8));
     renderSessionList();
+    saveTabState();
   } finally {
     openingSession.delete(sessionId);
   }
@@ -501,6 +598,7 @@ async function newSession() {
       if (session && session.title !== 'New Session') { clearInterval(titlePoll); return; }
       refreshSessionList();
     }, 15000);
+    saveTabState();
   } finally {
     creatingSession = false;
   }
@@ -601,6 +699,7 @@ function switchToSession(sessionId) {
 
   updateResourcePanel(sessionId);
   renderSessionList();
+  saveTabState();
 }
 
 function addTab(sessionId, title) {
@@ -625,6 +724,12 @@ function addTab(sessionId, title) {
   tab.appendChild(titleSpan);
   tab.appendChild(closeBtn);
   tab.addEventListener('click', () => switchToSession(sessionId));
+  tab.addEventListener('mousedown', (e) => {
+    if (e.button === 1) { // Middle mouse button
+      e.preventDefault();
+      closeTab(sessionId);
+    }
+  });
 
   // Insert before the resource toggle button
   terminalTabs.insertBefore(tab, btnToggleResources);
@@ -665,6 +770,7 @@ async function closeTab(sessionId) {
   }
 
   renderSessionList();
+  saveTabState();
 }
 
 function updateTabStatus(sessionId, alive) {
@@ -710,7 +816,7 @@ function updateResourcePanel(sessionId) {
       const label = pr.repo ? `${pr.repo} #${pr.id}` : `PR #${pr.id}`;
       const url = pr.url || '#';
       html += `<a class="resource-link" href="${escapeHtml(url)}" target="_blank" title="${escapeHtml(url)}">
-        <span class="resource-icon">⎇</span>
+        <span class="resource-icon resource-icon-pr">PR</span>
         <span class="resource-label"><span class="resource-id">${escapeHtml(pr.id)}</span> ${pr.repo ? escapeHtml(pr.repo) : ''}</span>
       </a>`;
     }
@@ -722,7 +828,7 @@ function updateResourcePanel(sessionId) {
     for (const wi of wis) {
       const url = wi.url || '#';
       html += `<a class="resource-link" href="${escapeHtml(url)}" target="_blank" title="${escapeHtml(url)}">
-        <span class="resource-icon">📋</span>
+        <span class="resource-icon resource-icon-wi">WI</span>
         <span class="resource-label"><span class="resource-id">${escapeHtml(wi.id)}</span></span>
       </a>`;
     }
@@ -733,7 +839,7 @@ function updateResourcePanel(sessionId) {
     html += '<div class="resource-section"><div class="resource-section-title">Repositories</div>';
     for (const repo of repos) {
       html += `<a class="resource-link" href="${escapeHtml(repo.url)}" target="_blank" title="${escapeHtml(repo.url)}">
-        <span class="resource-icon">📦</span>
+        <span class="resource-icon">Repo</span>
         <span class="resource-label">${escapeHtml(repo.name)}</span>
       </a>`;
     }
@@ -747,7 +853,7 @@ function updateResourcePanel(sessionId) {
       try { name = decodeURIComponent(wiki.url.split('/').pop() || wiki.url); }
       catch { name = wiki.url.split('/').pop() || wiki.url; }
       html += `<a class="resource-link" href="${escapeHtml(wiki.url)}" target="_blank" title="${escapeHtml(wiki.url)}">
-        <span class="resource-icon">📄</span>
+        <span class="resource-icon">Wiki</span>
         <span class="resource-label">${escapeHtml(name)}</span>
       </a>`;
     }
@@ -1027,11 +1133,11 @@ function showImportMenu() {
   menu.style.right = (window.innerWidth - rect.right) + 'px';
   menu.innerHTML = `
     <button class="import-menu-item" data-mode="merge">
-      <span class="import-menu-icon">⊕</span>
+      <span class="import-menu-icon">+</span>
       <span><strong>Merge</strong><br><span class="import-menu-desc">Add new lines, keep existing</span></span>
     </button>
     <button class="import-menu-item" data-mode="override">
-      <span class="import-menu-icon">⟳</span>
+      <span class="import-menu-icon">↻</span>
       <span><strong>Override</strong><br><span class="import-menu-desc">Replace everything</span></span>
     </button>
   `;
@@ -1110,6 +1216,12 @@ searchInput.addEventListener('input', (e) => {
   searchQuery = e.target.value;
   searchClear.classList.toggle('hidden', !searchQuery);
   renderSessionList();
+});
+searchInput.addEventListener('focus', () => {
+  document.getElementById('search-wrapper').classList.add('search-active');
+});
+searchInput.addEventListener('blur', () => {
+  document.getElementById('search-wrapper').classList.remove('search-active');
 });
 searchClear.addEventListener('click', () => {
   searchInput.value = '';
@@ -1231,8 +1343,13 @@ function showToast(notification) {
 
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
-  if (e.ctrlKey && e.key === 'n') { e.preventDefault(); newSession(); }
+  // CTRL+N: Create new session from anywhere
+  if (e.ctrlKey && e.key === 'n') { 
+    e.preventDefault(); 
+    newSession(); 
+  }
 
+  // CTRL+Tab: Switch between session tabs
   if (e.ctrlKey && e.key === 'Tab') {
     e.preventDefault();
     const tabs = [...document.querySelectorAll('.tab')];
@@ -1242,10 +1359,22 @@ document.addEventListener('keydown', (e) => {
     switchToSession(tabs[next].dataset.sessionId);
   }
 
+  // CTRL+W: Close current session tab (only when terminal is focused)
   if (e.ctrlKey && e.key === 'w') {
     e.preventDefault();
+    // Only allow closing when a terminal is focused (not when in search or other inputs)
     if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
-    if (activeSessionId) closeTab(activeSessionId);
+    // Check if we're focused on a terminal
+    const focusedTerminal = activeSessionId && terminals.has(activeSessionId);
+    if (focusedTerminal) closeTab(activeSessionId);
+  }
+
+  // CTRL+F: Focus search bar
+  if (e.ctrlKey && e.key === 'f') {
+    e.preventDefault();
+    searchInput.focus();
+    searchInput.select();
+    document.getElementById('search-wrapper').classList.add('search-active');
   }
 
   if (e.key === 'Escape') {
@@ -1259,6 +1388,7 @@ document.addEventListener('keydown', (e) => {
       searchInput.value = '';
       searchQuery = '';
       searchClear.classList.add('hidden');
+      document.getElementById('search-wrapper').classList.remove('search-active');
       renderSessionList();
       if (activeSessionId && terminals.has(activeSessionId)) terminals.get(activeSessionId).terminal.focus();
     }

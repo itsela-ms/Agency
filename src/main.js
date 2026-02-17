@@ -9,6 +9,9 @@ const SettingsService = require('./settings-service');
 const NotificationService = require('./notification-service');
 const UpdateService = require('./update-service');
 
+// Prevent Chromium GPU compositing artifacts (rectangular patches of wrong shade on dark backgrounds)
+app.commandLine.appendSwitch('disable-gpu-compositing');
+
 let mainWindow;
 let updateService;
 let sessionService;
@@ -107,7 +110,7 @@ app.whenReady().then(async () => {
     }
 
     // System tray notification
-    const ICONS = { 'task-done': '✅', 'needs-input': '⏳', 'error': '❌', 'info': 'ℹ️' };
+    const ICONS = { 'task-done': '✓', 'needs-input': '◌', 'error': '!', 'info': '·' };
     const icon = ICONS[notification.type] || 'ℹ️';
     const osNotif = new Notification({
       title: `${icon} ${notification.title}`,
@@ -267,6 +270,11 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('session:rename', async (event, sessionId, title) => {
     await sessionService.renameSession(sessionId, title);
+  });
+
+  ipcMain.handle('session:delete', async (event, sessionId) => {
+    ptyManager.kill(sessionId);
+    await sessionService.deleteSession(sessionId);
   });
 
   // Forward pty output to renderer — batch at 16ms intervals to prevent IPC flooding

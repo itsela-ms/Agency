@@ -151,6 +151,12 @@ body {
 
 #search-wrapper {
   position: relative;
+  transition: all 0.2s;
+}
+
+#search-wrapper.search-active {
+  box-shadow: 0 0 0 2px var(--accent);
+  border-radius: 6px;
 }
 
 .search-clear {
@@ -234,6 +240,7 @@ body {
 #session-list {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 4px 0;
 }
 
@@ -253,7 +260,7 @@ body {
 /* Sidebar footer — removed, settings moved to modal */
 
 .session-item {
-  padding: 10px 12px;
+  padding: 10px 32px 10px 12px;
   cursor: pointer;
   border-left: 3px solid transparent;
   transition: all 0.1s;
@@ -265,7 +272,7 @@ body {
 }
 
 .session-item.active {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   border-left-color: var(--accent);
 }
 
@@ -278,6 +285,32 @@ body {
   height: 7px;
   background: var(--green);
   border-radius: 50%;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--green) 40%, transparent);
+}
+
+/* Session delete button (history tab only) */
+.session-delete {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--red);
+  font-size: 16px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s ease, color 0.15s ease;
+  padding: 4px;
+  line-height: 1;
+}
+
+.session-item:hover .session-delete {
+  opacity: 0.7;
+}
+
+.session-delete:hover {
+  opacity: 1 !important;
+  color: color-mix(in srgb, var(--red) 120%, white);
 }
 
 .session-title {
@@ -340,8 +373,9 @@ body {
 .session-resources {
   display: flex;
   flex-wrap: wrap;
-  gap: 3px;
-  margin-top: 3px;
+  gap: 4px;
+  margin-top: 4px;
+  padding-right: 8px;
 }
 
 .resource-badge {
@@ -418,18 +452,19 @@ body {
 }
 
 .tab {
-  padding: 8px 16px;
+  padding: 8px 32px 8px 16px;
   font-size: 12px;
   color: var(--text-dim);
   cursor: pointer;
   border-bottom: 2px solid transparent;
+  border-left: 3px solid transparent;
   white-space: nowrap;
   display: flex;
   align-items: center;
-  gap: 8px;
   flex-shrink: 0;
   transition: all 0.1s;
   max-width: 200px;
+  position: relative;
 }
 
 .tab:hover {
@@ -439,34 +474,44 @@ body {
 
 .tab.active {
   color: var(--text);
-  border-bottom-color: var(--accent);
+  border-left-color: var(--green);
 }
 
 .tab-title {
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
 }
 
 .tab-close {
-  font-size: 14px;
-  width: 18px;
-  height: 18px;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 18px;
+  line-height: 1;
+  width: 20px;
+  height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: 3px;
   opacity: 0;
-  transition: opacity 0.1s;
+  pointer-events: none;
+  transition: opacity 0.15s, background 0.15s;
+  flex-shrink: 0;
+  color: var(--text-dim);
 }
 
 .tab:hover .tab-close {
-  opacity: 0.6;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .tab-close:hover {
-  opacity: 1 !important;
-  background: color-mix(in srgb, var(--red) 20%, transparent);
-  color: var(--red);
+  background: var(--red);
+  color: var(--bg);
 }
 
 /* Terminal container */
