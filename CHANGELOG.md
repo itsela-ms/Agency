@@ -2,6 +2,22 @@
 
 All notable changes to DeepSky are documented here.
 
+## [0.5.3] - 2026-02-19
+
+### Added
+- Session state badges — each session shows a colored state pill (Idle / Working / Waiting / Pending / ✓ Done)
+- Graceful shutdown — busy sessions stay alive in the background when closing, with a 10-minute timeout
+- Close confirmation dialog when AI sessions are still processing
+
+### Changed
+- Resource panel toggle button changed from ⊞ to 🔗
+- Resource icons (Repo/Wiki/PR/WI) styled as auto-width pill badges to prevent text overlap
+- Sidebar session items have improved right padding to prevent badge collision
+
+### Fixed
+- Resource panel icon text ("Repo", "Wiki") overlapping with resource label names
+- Session resource badges colliding with running indicator dot and delete button
+
 ## [0.5.2] - 2026-02-17
 
 ### Changed
