@@ -54,6 +54,39 @@ async function writeWorkspace(sessionId, content) {
   return sessionDir;
 }
 
+async function writeFileMutationEvent(sessionId, {
+  cwd = 'C:\\repo',
+  filePaths = [],
+  resultType = 'success',
+  toolName = 'apply_patch',
+} = {}) {
+  const sessionDir = path.join(tmpDir, sessionId);
+  await fs.promises.mkdir(sessionDir, { recursive: true });
+  const event = {
+    type: 'hook.start',
+    data: {
+      hookType: 'postToolUse',
+      input: {
+        cwd,
+        toolName,
+        toolArgs: filePaths.map(filePath => `*** Update File: ${filePath}`).join('\n'),
+        toolResult: {
+          resultType,
+          toolTelemetry: {
+            metrics: { linesAdded: 1, linesRemoved: 0 },
+            restrictedProperties: {
+              filePaths: JSON.stringify(filePaths),
+              addedPaths: '[]',
+              deletedPaths: '[]',
+            },
+          },
+        },
+      },
+    },
+  };
+  await fs.promises.appendFile(path.join(sessionDir, 'events.jsonl'), `${JSON.stringify(event)}\n`, 'utf8');
+}
+
 describe('StatusService next step summaries', () => {
   it('keeps concise checkbox steps unchanged', async () => {
     await writePlan('short-steps', [
@@ -178,11 +211,19 @@ describe('StatusService generated files', () => {
 });
 
 describe('StatusService git file tracking', () => {
-  it('returns file changes from git status instead of session background files', async () => {
+  it('returns only git status changes touched by the session', async () => {
     await writeWorkspace('git-files', 'cwd: C:\\repo\nsummary: repo session');
+    await writeFileMutationEvent('git-files', {
+      filePaths: [
+        'C:\\repo\\src\\app.js',
+        'C:\\repo\\reports\\output.html',
+        'C:\\repo\\new.txt',
+        'C:\\repo\\stale.txt',
+      ],
+    });
     execFileMock
       .mockResolvedValueOnce({ stdout: 'C:\\repo\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: ' M src/app.js\nA  reports/output.html\nR  old.txt -> new.txt\n D stale.txt\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: ' M src/app.js\n M unrelated.js\nA  reports/output.html\nR  old.txt -> new.txt\n D stale.txt\n', stderr: '' })
       .mockResolvedValueOnce({ stdout: 'diff --git a/src/app.js b/src/app.js\n@@ -1 +1 @@\n-old\n+new\n', stderr: '' })
       .mockResolvedValueOnce({ stdout: 'diff --git a/reports/output.html b/reports/output.html\nnew file mode 100644\n', stderr: '' })
       .mockResolvedValueOnce({ stdout: 'diff --git a/old.txt b/new.txt\nsimilarity index 98%\nrename from old.txt\nrename to new.txt\n', stderr: '' })
@@ -197,6 +238,94 @@ describe('StatusService git file tracking', () => {
     ]);
   });
 
+  it('does not show repo-global dirty files when the session did not touch them', async () => {
+    await writeWorkspace('repo-noise', 'cwd: C:\\repo\nsummary: repo session');
+    execFileMock.mockResolvedValueOnce({ stdout: 'C:\\repo\n', stderr: '' });
+
+    const status = await svc.getSessionStatus('repo-noise');
+    expect(status.files).toEqual([]);
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes cached status when events are appended without changing workspace metadata', async () => {
+    await writeWorkspace('events-cache', 'cwd: C:\\repo\nsummary: repo session');
+    execFileMock.mockResolvedValueOnce({ stdout: 'C:\\repo\n', stderr: '' });
+
+    const first = await svc.getSessionStatus('events-cache');
+    expect(first.files).toEqual([]);
+
+    await new Promise(resolve => setTimeout(resolve, 15));
+    await writeFileMutationEvent('events-cache', {
+      filePaths: ['C:\\repo\\src\\fresh.js'],
+    });
+    execFileMock
+      .mockResolvedValueOnce({ stdout: 'C:\\repo\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: ' M src/fresh.js\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'diff --git a/src/fresh.js b/src/fresh.js\n', stderr: '' });
+
+    const second = await svc.getSessionStatus('events-cache');
+    expect(second.files).toEqual([{ path: 'src/fresh.js', action: 'M', diff: 'diff --git a/src/fresh.js b/src/fresh.js' }]);
+  });
+
+  it('ignores failed mutation tool events when filtering repo changes', async () => {
+    await writeWorkspace('failed-mutation', 'cwd: C:\\repo\nsummary: repo session');
+    await writeFileMutationEvent('failed-mutation', {
+      filePaths: ['C:\\repo\\src\\failed.js'],
+      resultType: 'error',
+    });
+    execFileMock.mockResolvedValueOnce({ stdout: 'C:\\repo\n', stderr: '' });
+
+    const status = await svc.getSessionStatus('failed-mutation');
+    expect(status.files).toEqual([]);
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the session cwd for malformed event cwd values', async () => {
+    await writeWorkspace('malformed-event-cwd', 'cwd: C:\\repo\nsummary: repo session');
+    await writeFileMutationEvent('malformed-event-cwd', {
+      cwd: {},
+      filePaths: ['src/fallback.js'],
+    });
+    execFileMock
+      .mockResolvedValueOnce({ stdout: 'C:\\repo\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: ' M src/fallback.js\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'diff --git a/src/fallback.js b/src/fallback.js\n', stderr: '' });
+
+    const status = await svc.getSessionStatus('malformed-event-cwd');
+    expect(status.files).toEqual([{ path: 'src/fallback.js', action: 'M', diff: 'diff --git a/src/fallback.js b/src/fallback.js' }]);
+  });
+
+  it('parses null-delimited git status paths without C-quote mangling', async () => {
+    const tabbedPath = 'src/a\tb.js';
+    await writeWorkspace('null-status', 'cwd: C:\\repo\nsummary: repo session');
+    await writeFileMutationEvent('null-status', {
+      filePaths: [`C:\\repo\\${tabbedPath}`],
+    });
+    execFileMock
+      .mockResolvedValueOnce({ stdout: 'C:\\repo\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: ` M ${tabbedPath}\0 M shared/repo-global-noise.js\0`, stderr: '' })
+      .mockResolvedValueOnce({ stdout: `diff --git a/${tabbedPath} b/${tabbedPath}\n`, stderr: '' });
+
+    const status = await svc.getSessionStatus('null-status');
+    expect(status.files).toEqual([{ path: tabbedPath, action: 'M', diff: `diff --git a/${tabbedPath} b/${tabbedPath}` }]);
+  });
+
+  it('reads diff previews from the repository root when session cwd is a subdirectory', async () => {
+    await writeWorkspace('subdir-diff', 'cwd: C:\\repo\\src\nsummary: repo session');
+    await writeFileMutationEvent('subdir-diff', {
+      cwd: 'C:\\repo\\src',
+      filePaths: ['C:\\repo\\package.json'],
+    });
+    execFileMock
+      .mockResolvedValueOnce({ stdout: 'C:\\repo\n', stderr: '' })
+      .mockResolvedValueOnce({ stdout: ' M package.json\0', stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'diff --git a/package.json b/package.json\n', stderr: '' });
+
+    const status = await svc.getSessionStatus('subdir-diff');
+    expect(status.files).toEqual([{ path: 'package.json', action: 'M', diff: 'diff --git a/package.json b/package.json' }]);
+    expect(execFileMock).toHaveBeenNthCalledWith(3, 'git', ['diff', '--no-ext-diff', '--', 'package.json'], expect.objectContaining({ cwd: 'C:\\repo' }));
+  });
+
   it('returns no file changes when session cwd is not a git repo', async () => {
     await writeWorkspace('non-git-files', 'cwd: C:\\repo\nsummary: repo session');
     execFileMock.mockRejectedValueOnce(new Error('not a git repo'));
@@ -207,6 +336,10 @@ describe('StatusService git file tracking', () => {
 
   it('refreshes cached status after explicit invalidation', async () => {
     await writeWorkspace('cache-reset', 'cwd: C:\\repo-a\nsummary: repo session');
+    await writeFileMutationEvent('cache-reset', {
+      cwd: 'C:\\repo-a',
+      filePaths: ['C:\\repo-a\\src\\old.js'],
+    });
     execFileMock
       .mockResolvedValueOnce({ stdout: 'C:\\repo-a\n', stderr: '' })
       .mockResolvedValueOnce({ stdout: ' M src/old.js\n', stderr: '' })
@@ -216,6 +349,10 @@ describe('StatusService git file tracking', () => {
     expect(first.files).toEqual([{ path: 'src/old.js', action: 'M', diff: 'diff --git a/src/old.js b/src/old.js' }]);
 
     await writeWorkspace('cache-reset', 'cwd: C:\\repo-b\nsummary: repo session');
+    await writeFileMutationEvent('cache-reset', {
+      cwd: 'C:\\repo-b',
+      filePaths: ['C:\\repo-b\\src\\new.js'],
+    });
     execFileMock
       .mockResolvedValueOnce({ stdout: 'C:\\repo-b\n', stderr: '' })
       .mockResolvedValueOnce({ stdout: ' M src/new.js\n', stderr: '' })
@@ -231,6 +368,10 @@ describe('StatusService git file tracking', () => {
     await fs.promises.writeFile(path.join(sessionDir, '.deepsky-cwd'), 'C:\\repo-override', 'utf8');
     await new Promise(resolve => setTimeout(resolve, 15));
     await writeWorkspace('cwd-priority', 'cwd: C:\\repo-new\nsummary: repo session');
+    await writeFileMutationEvent('cwd-priority', {
+      cwd: 'C:\\repo-new',
+      filePaths: ['C:\\repo-new\\src\\current.js'],
+    });
 
     execFileMock
       .mockResolvedValueOnce({ stdout: 'C:\\repo-new\n', stderr: '' })

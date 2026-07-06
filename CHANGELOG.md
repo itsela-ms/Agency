@@ -4,6 +4,16 @@ All notable changes to DeepSky are documented here.
 
 ## [Unreleased]
 
+## [1.2.6-beta.1] - 2026-07-06
+
+### Added
+- **Status benchmark stress test** - `npm run benchmark:status` now generates large synthetic session histories and reads status with configurable concurrency, defaulting to parallelism 8.
+
+### Fixed
+- **Files Changed is session-scoped** - the Session Status panel now shows dirty files touched by that specific session instead of leaking every dirty file from the session's shared repository CWD.
+- **Status refreshes after new file mutations** - status caching now accounts for session event and CWD metadata changes, so newly touched files appear without waiting for unrelated session directory updates.
+- **Git status parsing is safer** - changed-file detection now uses NUL-delimited git porcelain output, ignores failed mutation events, and handles malformed historical CWD metadata without breaking status reads.
+
 ## [1.2.5] - 2026-06-25
 
 ### Added

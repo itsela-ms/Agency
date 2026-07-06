@@ -32,10 +32,10 @@ class StatusService {
     }
     const sessionDir = path.join(this.sessionStateDir, sessionId);
     try {
-      const stat = await fs.promises.stat(sessionDir);
+      const fingerprint = await this._readStatusFingerprint(sessionDir);
       const cached = this.cache.get(sessionId);
       if (cached &&
-          stat.mtimeMs <= cached.mtimeMs &&
+          cached.fingerprint === fingerprint &&
           (Date.now() - cached.readAt) < STATUS_CACHE_TTL_MS) {
         return cached.data;
       }
@@ -50,11 +50,24 @@ class StatusService {
       ]);
 
       const data = { intent, summary, nextSteps, files, generatedFiles, timeline };
-      this.cache.set(sessionId, { data, mtimeMs: stat.mtimeMs, readAt: Date.now() });
+      this.cache.set(sessionId, { data, fingerprint, readAt: Date.now() });
       return data;
     } catch {
       return { intent: null, summary: null, nextSteps: [], files: [], generatedFiles: [], timeline: [] };
     }
+  }
+
+  async _readStatusFingerprint(sessionDir) {
+    const parts = [];
+    for (const relativePath of ['', 'events.jsonl', 'plan.md', 'session-summary.md', 'workspace.yaml', '.deepsky-cwd']) {
+      try {
+        const stat = await fs.promises.stat(path.join(sessionDir, relativePath));
+        parts.push(`${relativePath}:${stat.mtimeMs}:${stat.size}`);
+      } catch {
+        parts.push(`${relativePath}:missing`);
+      }
+    }
+    return parts.join('|');
   }
 
   /**
@@ -262,18 +275,21 @@ class StatusService {
     if (!cwd) return [];
 
     try {
-      await this._execFile('git', ['rev-parse', '--show-toplevel'], { cwd });
-      const { stdout } = await this._execFile('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd });
-      const files = String(stdout || '')
-        .split(/\r?\n/)
-        .map(line => line.trimEnd())
-        .filter(Boolean)
-        .map(line => this._parseGitStatusLine(line))
-        .filter(Boolean);
-      return Promise.all(files.map(async (file) => ({
-        ...file,
-        diff: await this._readFileDiffPreview(cwd, file),
-      })));
+      const { stdout: rootStdout } = await this._execFile('git', ['rev-parse', '--show-toplevel'], { cwd });
+      const repoRoot = String(rootStdout || '').trim();
+      const sessionPaths = await this._readSessionTouchedGitPaths(sessionDir, repoRoot, cwd);
+      if (sessionPaths.size === 0) return [];
+
+      const { stdout } = await this._execFile('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], { cwd });
+      const files = this._parseGitStatusOutput(stdout)
+        .filter(file => file && this._hasSessionTouchedGitPath(file, sessionPaths));
+      return Promise.all(files.map(async (file) => {
+        const { originalPath, ...visibleFile } = file;
+        return {
+          ...visibleFile,
+          diff: await this._readFileDiffPreview(repoRoot || cwd, file),
+        };
+      }));
     } catch {
       return [];
     }
@@ -313,6 +329,139 @@ class StatusService {
     if (file.action === 'A') return 'New file (no diff preview available yet)';
     if (file.action === 'D') return 'Deleted file (no diff preview available)';
     return '';
+  }
+
+  async _readSessionTouchedGitPaths(sessionDir, repoRoot, fallbackCwd) {
+    const eventsPath = path.join(sessionDir, 'events.jsonl');
+    try { await fs.promises.access(eventsPath); } catch { return new Set(); }
+
+    const normalizedRepoRoot = this._normalizeAbsolutePath(repoRoot);
+    if (!normalizedRepoRoot) return new Set();
+
+    return new Promise((resolve) => {
+      const paths = new Set();
+      const stream = fs.createReadStream(eventsPath, { encoding: 'utf8' });
+      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+      rl.on('line', (line) => {
+        let event;
+        try { event = JSON.parse(line); } catch { return; }
+
+        const input = event?.type === 'hook.start' && event.data?.hookType === 'postToolUse'
+          ? event.data?.input
+          : null;
+        if (!input || !this._isFileMutationToolEvent(input)) return;
+
+        try {
+          const eventCwd = typeof input.cwd === 'string' && input.cwd.trim() ? input.cwd : fallbackCwd;
+          for (const filePath of this._extractMutatedFilePaths(input)) {
+            const relativePath = this._toRepoRelativePath(filePath, normalizedRepoRoot, eventCwd);
+            if (relativePath) paths.add(this._gitPathKey(relativePath));
+          }
+        } catch {
+          // Ignore malformed historical events; status should remain best-effort.
+        }
+      });
+
+      rl.on('close', () => resolve(paths));
+      rl.on('error', () => resolve(paths));
+      stream.on('error', () => resolve(paths));
+    });
+  }
+
+  _isFileMutationToolEvent(input) {
+    if (input?.toolResult?.resultType !== 'success') {
+      return false;
+    }
+
+    const toolName = String(input?.toolName || '');
+    if (toolName === 'apply_patch' || toolName === 'edit' || toolName === 'create' || toolName === 'multi_edit') {
+      return true;
+    }
+
+    const metrics = input?.toolResult?.toolTelemetry?.metrics || {};
+    const linesAdded = Number(metrics.linesAdded || 0);
+    const linesRemoved = Number(metrics.linesRemoved || 0);
+    return linesAdded > 0 || linesRemoved > 0;
+  }
+
+  _extractMutatedFilePaths(input) {
+    const paths = [];
+    const restricted = input?.toolResult?.toolTelemetry?.restrictedProperties || {};
+    for (const key of ['filePaths', 'addedPaths', 'deletedPaths']) {
+      paths.push(...this._parsePathArrayProperty(restricted[key]));
+    }
+
+    const toolArgs = String(input?.toolArgs || '');
+    const patchPathRe = /^\*\*\* (?:Update|Add|Delete) File: (.+)$|^\*\*\* Move to: (.+)$/gm;
+    let match;
+    while ((match = patchPathRe.exec(toolArgs)) !== null) {
+      const filePath = (match[1] || match[2] || '').trim();
+      if (filePath) paths.push(filePath);
+    }
+
+    return paths;
+  }
+
+  _parsePathArrayProperty(value) {
+    if (Array.isArray(value)) {
+      return value.filter(item => typeof item === 'string' && item.trim());
+    }
+    if (typeof value !== 'string' || !value.trim()) return [];
+
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed)
+        ? parsed.filter(item => typeof item === 'string' && item.trim())
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  _toRepoRelativePath(filePath, repoRoot, eventCwd) {
+    const normalizedPath = String(filePath || '').trim();
+    if (!normalizedPath) return '';
+
+    const pathApi = this._pathApiFor(repoRoot, normalizedPath, eventCwd);
+    const absolutePath = this._isAbsoluteFsPath(normalizedPath)
+      ? normalizedPath
+      : pathApi.resolve(eventCwd || repoRoot, normalizedPath);
+    const relative = pathApi.relative(repoRoot, absolutePath);
+    if (!relative || relative.startsWith('..') || this._isAbsoluteFsPath(relative)) return '';
+    return this._normalizeGitPath(relative);
+  }
+
+  _normalizeAbsolutePath(filePath) {
+    const normalizedPath = String(filePath || '').trim();
+    if (!normalizedPath) return '';
+    return this._pathApiFor(normalizedPath).resolve(normalizedPath);
+  }
+
+  _pathApiFor(...paths) {
+    return paths.some(value => /^[A-Za-z]:[\\/]/.test(String(value || ''))) ? path.win32 : path;
+  }
+
+  _isAbsoluteFsPath(filePath) {
+    const normalizedPath = String(filePath || '');
+    return path.isAbsolute(normalizedPath) || /^[A-Za-z]:[\\/]/.test(normalizedPath);
+  }
+
+  _normalizeGitPath(filePath) {
+    return String(filePath || '')
+      .replace(/\\/g, '/')
+      .replace(/^\.\//, '')
+      .trim();
+  }
+
+  _gitPathKey(filePath) {
+    const normalizedPath = this._normalizeGitPath(filePath);
+    return process.platform === 'win32' ? normalizedPath.toLowerCase() : normalizedPath;
+  }
+
+  _hasSessionTouchedGitPath(file, sessionPaths) {
+    return sessionPaths.has(this._gitPathKey(file.path)) ||
+      (file.originalPath && sessionPaths.has(this._gitPathKey(file.originalPath)));
   }
 
   _normalizeDiffPreview(diffText) {
@@ -392,19 +541,72 @@ class StatusService {
     return readPreferredSessionCwd(sessionDir);
   }
 
+  _parseGitStatusOutput(stdout) {
+    const text = String(stdout || '');
+    if (text.includes('\0')) {
+      return this._parseGitStatusNullDelimited(text);
+    }
+
+    return text
+      .split(/\r?\n/)
+      .map(line => line.trimEnd())
+      .filter(Boolean)
+      .map(line => this._parseGitStatusLine(line))
+      .filter(Boolean);
+  }
+
+  _parseGitStatusNullDelimited(stdout) {
+    const records = String(stdout || '').split('\0').filter(Boolean);
+    const files = [];
+
+    for (let i = 0; i < records.length; i++) {
+      const record = records[i];
+      if (record.length < 4) continue;
+
+      const x = record[0];
+      const y = record[1];
+      const action = this._mapGitAction(x, y);
+      if (!action) continue;
+
+      const pathText = record.slice(3);
+      const file = {
+        path: this._normalizeGitPath(pathText),
+        action,
+      };
+
+      if (x === 'R' || y === 'R' || x === 'C' || y === 'C') {
+        const originalPath = records[i + 1] || '';
+        if (originalPath) {
+          file.originalPath = this._normalizeGitPath(originalPath);
+          i += 1;
+        }
+      }
+
+      files.push(file);
+    }
+
+    return files;
+  }
+
   _parseGitStatusLine(line) {
     if (line.startsWith('?? ')) {
-      return { path: line.slice(3), action: 'A' };
+      return { path: this._normalizeGitPath(this._decodeGitStatusPath(line.slice(3))), action: 'A' };
     }
 
     if (line.length < 4) return null;
     const x = line[0];
     const y = line[1];
     const rawPath = line.slice(3).trim();
-    const pathText = rawPath.includes(' -> ') ? rawPath.split(' -> ').pop().trim() : rawPath;
+    const parts = rawPath.includes(' -> ') ? rawPath.split(' -> ') : null;
+    const pathText = this._decodeGitStatusPath(parts ? parts[parts.length - 1].trim() : rawPath);
+    const originalPath = parts ? this._decodeGitStatusPath(parts[0].trim()) : '';
     const action = this._mapGitAction(x, y);
     if (!pathText || !action) return null;
-    return { path: pathText.replace(/\\/g, '/'), action };
+    return {
+      path: this._normalizeGitPath(pathText),
+      action,
+      ...(originalPath ? { originalPath: this._normalizeGitPath(originalPath) } : {}),
+    };
   }
 
   _mapGitAction(x, y) {
@@ -414,6 +616,19 @@ class StatusService {
     if (x === 'C' || y === 'C') return 'A';
     if (x === 'M' || y === 'M') return 'M';
     return null;
+  }
+
+  _decodeGitStatusPath(filePath) {
+    const text = String(filePath || '');
+    if (!(text.startsWith('"') && text.endsWith('"'))) {
+      return text;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text.slice(1, -1);
+    }
   }
 
   /**
