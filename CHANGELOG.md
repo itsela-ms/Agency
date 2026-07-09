@@ -4,6 +4,16 @@ All notable changes to DeepSky are documented here.
 
 ## [Unreleased]
 
+## [1.2.7] - 2026-07-09
+
+### Added
+- **One-off New Session options** - the sidebar New Session action now has a `...` menu for starting just one session with a chosen launcher (`copilot` or `agency copilot`) and custom args without changing global settings.
+
+### Fixed
+- **Modal shortcuts stay isolated** - New Session Options suppresses global session shortcuts and closed-tab restore while open, so a default session or restored tab cannot appear behind the dialog.
+- **Terminal drag selection copies cleanly** - Copilot CLI mouse-tracking sequences are filtered before reaching xterm, restoring plain click-drag selection and copying without the terminal scrollbar glyphs.
+- **Windows CI release tests are less flaky** - slow command-path and history-scope tests now have explicit timeouts so release validation does not fail on transient runner slowness.
+
 ## [1.2.7-beta.1] - 2026-07-09
 
 ### Added
