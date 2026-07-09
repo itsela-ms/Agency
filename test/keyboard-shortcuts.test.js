@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText } = require('../src/keyboard-shortcuts');
+const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, isCopyShortcut } = require('../src/keyboard-shortcuts');
 
 /** Build a minimal synthetic keydown event. */
 function key(overrides = {}) {
@@ -176,6 +176,15 @@ describe('createTerminalKeyHandler', () => {
     expect(terminal.clearSelection).not.toHaveBeenCalled();
   });
 
+  it('Ctrl+C with a whitespace-only selection falls through as SIGINT', () => {
+    terminal.hasSelection.mockReturnValue(true);
+    terminal.getSelection.mockReturnValue('   \n ');
+    const result = handler(key({ ctrlKey: true, key: 'c' }));
+    expect(result).toBe(true);
+    expect(api.copyText).not.toHaveBeenCalled();
+    expect(terminal.clearSelection).not.toHaveBeenCalled();
+  });
+
   // ── Ctrl+Backspace word delete ────────────────────────────────────────────
 
   it('Ctrl+Backspace: sends word-backward-delete (\\x17) to PTY', () => {
@@ -288,6 +297,32 @@ describe('createTerminalKeyHandler', () => {
     });
   });
 
+  describe('stripTerminalScrollbar', () => {
+    it('removes a trailing scrollbar glyph and its padding from each line', () => {
+      expect(stripTerminalScrollbar('hello        \u2503')).toBe('hello');
+      expect(stripTerminalScrollbar('line one   \u2503\nline two \u2503')).toBe('line one\nline two');
+    });
+
+    it('collapses a scrollbar-only line to empty', () => {
+      expect(stripTerminalScrollbar('   \u2503')).toBe('');
+    });
+
+    it('leaves mid-line and left-gutter heavy verticals untouched', () => {
+      expect(stripTerminalScrollbar('a \u2503 b')).toBe('a \u2503 b');
+      expect(stripTerminalScrollbar('\u2503 gutter kept')).toBe('\u2503 gutter kept');
+    });
+
+    it('leaves ordinary text and ascii pipes untouched', () => {
+      expect(stripTerminalScrollbar('no bar here')).toBe('no bar here');
+      expect(stripTerminalScrollbar('a | b')).toBe('a | b');
+    });
+
+    it('is a no-op for empty or non-string input', () => {
+      expect(stripTerminalScrollbar('')).toBe('');
+      expect(stripTerminalScrollbar(null)).toBe(null);
+    });
+  });
+
   // ── Meta (macOS Cmd) equivalents ──────────────────────────────────────────
 
   it('Meta+= bubbles for zoom (macOS)', () => {
@@ -365,6 +400,73 @@ describe('createTerminalKeyHandler', () => {
 
     expect(result).toBe(false);
     expect(api.pasteText).toHaveBeenCalled();
+  });
+});
+
+describe('stripMouseTrackingSequences', () => {
+  it('removes standalone mouse-reporting mode sets (1000/1002/1003)', () => {
+    expect(stripMouseTrackingSequences('\x1b[?1000h')).toBe('');
+    expect(stripMouseTrackingSequences('\x1b[?1002h')).toBe('');
+    expect(stripMouseTrackingSequences('\x1b[?1003h')).toBe('');
+    expect(stripMouseTrackingSequences('\x1b[?1002l')).toBe('');
+  });
+
+  it('preserves surrounding output while dropping the mouse sequence', () => {
+    expect(stripMouseTrackingSequences('before\x1b[?1002hafter')).toBe('beforeafter');
+  });
+
+  it('strips only mouse-reporting members from a combined parameter list', () => {
+    expect(stripMouseTrackingSequences('\x1b[?1002;1006h')).toBe('\x1b[?1006h');
+    expect(stripMouseTrackingSequences('\x1b[?1006;1002;1015h')).toBe('\x1b[?1006;1015h');
+  });
+
+  it('leaves unrelated private modes untouched (alt-screen, bracketed paste, cursor keys)', () => {
+    expect(stripMouseTrackingSequences('\x1b[?1049h')).toBe('\x1b[?1049h');
+    expect(stripMouseTrackingSequences('\x1b[?2004h')).toBe('\x1b[?2004h');
+    expect(stripMouseTrackingSequences('\x1b[?1h')).toBe('\x1b[?1h');
+    expect(stripMouseTrackingSequences('\x1b[?25l')).toBe('\x1b[?25l');
+  });
+
+  it('leaves SGR encoding mode (1006) alone when standalone', () => {
+    expect(stripMouseTrackingSequences('\x1b[?1006h')).toBe('\x1b[?1006h');
+  });
+
+  it('is a no-op for chunks without private-mode sequences', () => {
+    expect(stripMouseTrackingSequences('plain text\r\n')).toBe('plain text\r\n');
+    expect(stripMouseTrackingSequences('')).toBe('');
+  });
+
+  it('handles non-string input defensively', () => {
+    expect(stripMouseTrackingSequences(null)).toBe(null);
+    expect(stripMouseTrackingSequences(undefined)).toBe(undefined);
+  });
+
+  it('does not strip a substring like 10002 (exact-token match only)', () => {
+    expect(stripMouseTrackingSequences('\x1b[?10002h')).toBe('\x1b[?10002h');
+  });
+});
+
+describe('isCopyShortcut', () => {
+  it('matches Ctrl+C', () => {
+    expect(isCopyShortcut(key({ ctrlKey: true, key: 'c' }))).toBe(true);
+  });
+  it('matches Cmd+C (macOS)', () => {
+    expect(isCopyShortcut(key({ metaKey: true, key: 'c' }))).toBe(true);
+  });
+  it('matches Ctrl+C on a Hebrew layout via physical code', () => {
+    expect(isCopyShortcut(key({ ctrlKey: true, key: 'ב', code: 'KeyC' }))).toBe(true);
+  });
+  it('matches Ctrl+Insert', () => {
+    expect(isCopyShortcut(key({ ctrlKey: true, key: 'Insert' }))).toBe(true);
+  });
+  it('does not match a plain C', () => {
+    expect(isCopyShortcut(key({ key: 'c' }))).toBe(false);
+  });
+  it('does not match Ctrl+V', () => {
+    expect(isCopyShortcut(key({ ctrlKey: true, key: 'v' }))).toBe(false);
+  });
+  it('does not match a bare Insert', () => {
+    expect(isCopyShortcut(key({ key: 'Insert' }))).toBe(false);
   });
 });
 

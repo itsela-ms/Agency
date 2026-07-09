@@ -148,6 +148,64 @@ function getLauncherArgsText(settings) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function getExplicitLauncherSupport(settings, launcher) {
+  const augmented = getAugmentedSettings(settings);
+  const resolvedLauncher = launcher === 'agency' ? 'agency' : 'copilot';
+
+  if (resolvedLauncher === 'agency') {
+    return augmented.agencyAvailable
+      ? { launcher: 'agency', available: true, reason: '' }
+      : { launcher: 'agency', available: false, reason: 'Agency is not installed on this machine.' };
+  }
+
+  return augmented.copilotAvailable
+    ? { launcher: 'copilot', available: true, reason: '' }
+    : { launcher: 'copilot', available: false, reason: 'GitHub Copilot CLI is not installed.' };
+}
+
+function resolveNewSessionLaunchRequest(request) {
+  if (!request || typeof request === 'string') {
+    const settings = settingsService.get();
+    const sessionSupport = getNewSessionSupport(settings);
+    const launcherArgs = getLauncherArgsText(settings);
+    return {
+      cwd: request || undefined,
+      launcher: sessionSupport.launcher,
+      launcherArgs,
+      available: sessionSupport.available,
+      reason: sessionSupport.reason,
+      oneOff: false,
+    };
+  }
+
+  if (typeof request !== 'object' || Array.isArray(request)) {
+    throw new Error('Invalid new session request.');
+  }
+
+  const settings = settingsService.get();
+  const requestedLauncher = request.launcher === 'agency' ? 'agency' : request.launcher === 'copilot' ? 'copilot' : null;
+  const sessionSupport = requestedLauncher
+    ? getExplicitLauncherSupport(settings, requestedLauncher)
+    : getNewSessionSupport(settings);
+  const hasOneOffArgs = Object.prototype.hasOwnProperty.call(request, 'launcherArgs');
+  if (hasOneOffArgs && typeof request.launcherArgs !== 'string') {
+    throw new Error('Custom launcher arguments must be a string.');
+  }
+
+  const launcherArgs = hasOneOffArgs ? request.launcherArgs.trim() : getLauncherArgsText(settings);
+
+  parseLauncherArgs(launcherArgs);
+
+  return {
+    cwd: typeof request.cwd === 'string' && request.cwd.trim() ? request.cwd.trim() : undefined,
+    launcher: sessionSupport.launcher,
+    launcherArgs,
+    available: sessionSupport.available,
+    reason: sessionSupport.reason,
+    oneOff: requestedLauncher !== null || hasOneOffArgs,
+  };
+}
+
 function requireValidSessionId(sessionId) {
   if (!isValidSessionId(sessionId)) {
     throw new Error('Invalid session ID.');
@@ -315,16 +373,15 @@ if (!hasSingleInstanceLock) {
   // would otherwise arrive before the terminal exists (which silently dropped
   // the initial CLI output and left the terminal in alt-buffer mode with no
   // scrollback, making it appear "non-scrollable" until /restart redrew it).
-  ipcMain.handle('session:new', async (event, cwd) => {
-    const sessionSupport = getNewSessionSupport(settingsService.get());
-    if (!sessionSupport.available) {
-      throw new Error(sessionSupport.reason);
+  ipcMain.handle('session:new', async (event, request) => {
+    const launchRequest = resolveNewSessionLaunchRequest(request);
+    if (!launchRequest.available) {
+      throw new Error(launchRequest.reason);
     }
 
-    const launcher = sessionSupport.launcher;
-    const launcherArgs = getLauncherArgsText(settingsService.get(), launcher);
+    const { cwd, launcher, launcherArgs, oneOff } = launchRequest;
     // Try pre-warmed standby for instant startup
-    const claimed = ptyManager.claimStandby(cwd || undefined, launcher);
+    const claimed = oneOff ? null : ptyManager.claimStandby(cwd || undefined, launcher);
     if (claimed) {
       if (cwd) await sessionService.saveCwd(claimed.id, cwd);
       await sessionService.saveLauncher(claimed.id, launcher);

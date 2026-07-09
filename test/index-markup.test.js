@@ -53,6 +53,29 @@ describe('index.html accessibility regressions', () => {
     expect(html).toContain('--agent squad');
   });
 
+  it('provides a one-off new-session options dialog for launcher and args', () => {
+    expect(html).toContain('id="btn-new-options"');
+    expect(html).toContain('aria-label="New session options"');
+    expect(html).toContain('id="new-session-options-overlay"');
+    expect(html).toContain('id="new-session-launcher-label"');
+    expect(html).toContain('aria-labelledby="new-session-launcher-label"');
+    expect(html).toContain('id="new-session-launcher-copilot-row"');
+    expect(html).toContain('id="new-session-launcher-copilot-desc"');
+    expect(html).toContain('aria-describedby="new-session-launcher-copilot-desc"');
+    expect(html).toMatch(/id="new-session-options-overlay"[^>]*aria-hidden="true"/);
+    expect(html).toMatch(/class="settings-modal new-session-options-modal"[^>]*role="dialog"[^>]*aria-modal="true"/);
+    expect(html).toContain('id="new-session-launcher-copilot"');
+    expect(html).toContain('id="new-session-launcher-agency"');
+    expect(html).toContain('id="new-session-args"');
+    expect(html).toContain('Start session');
+    expect(html).toContain('do not change the global setting');
+  });
+
+  it('keeps the center empty-state button as the simple new-session path', () => {
+    expect(html).toContain('id="btn-new-center"');
+    expect(html).not.toMatch(/id="btn-new-center"[\s\S]{0,160}btn-new-options/);
+  });
+
   it('labels the copy-on-select toggle for assistive technology', () => {
     expect(html).toContain('id="copy-on-select-title"');
     expect(html).toContain('aria-labelledby="copy-on-select-title"');

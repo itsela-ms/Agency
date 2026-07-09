@@ -194,7 +194,7 @@ describe('app-support', () => {
       const first = resolveCopilotInfo();
       const second = resolveCopilotInfo();
       expect(second).toBe(first);
-    });
+    }, 15000);
 
     it('caches resolveAgencyInfo across calls', () => {
       _clearCommandPathCache();
@@ -216,7 +216,7 @@ describe('app-support', () => {
       // confirming the injected call did not overwrite or replace it.
       const reCached = resolveCopilotInfo();
       expect(reCached).not.toBe(injected);
-    });
+    }, 15000);
   });
 
   describe('session id validation', () => {

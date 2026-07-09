@@ -61,6 +61,75 @@ function sanitizePasteText(text) {
 }
 
 /**
+ * True when the event is a copy shortcut (Ctrl/Cmd+C or Ctrl/Cmd+Insert),
+ * resolved in a keyboard-layout-independent way.
+ *
+ * @param {KeyboardEvent} e
+ * @returns {boolean}
+ */
+function isCopyShortcut(e) {
+  const mod = e.ctrlKey || e.metaKey;
+  if (!mod) return false;
+  return getShortcutKey(e) === 'c' || e.key === 'Insert';
+}
+
+/**
+ * Strips the Copilot CLI's vertical scrollbar from copied terminal text.
+ *
+ * The embedded CLI paints a scrollbar as a column of U+2503 (BOX DRAWINGS
+ * HEAVY VERTICAL, `┃`) glyphs in the rightmost column of the transcript. A
+ * multiline / rectangular selection captures that glyph as a trailing
+ * character on every line, so copied text ends up peppered with `┃`. We
+ * remove a trailing scrollbar glyph — plus the padding whitespace before it —
+ * from each line. Anchoring to the end of the line keeps this safe: a `┃`
+ * appearing mid-line or in a left gutter is left untouched.
+ *
+ * @param {string} text - raw selection text from xterm / DOM selection.
+ * @returns {string} the selection with the scrollbar column removed.
+ */
+function stripTerminalScrollbar(text) {
+  if (typeof text !== 'string' || !text) return text;
+  return text.replace(/[ \t]*\u2503[ \t]*$/gm, '');
+}
+
+/**
+ * Strips terminal mouse-tracking enable/disable sequences from a PTY data
+ * chunk before it reaches xterm.
+ *
+ * WHY: xterm hands a plain click+drag to the application (instead of creating a
+ * text selection) whenever the app has mouse reporting active — see xterm's
+ * mousedown gate `areMouseEventsActive && !shouldForceSelection(e)`. The
+ * embedded Copilot CLI enables mouse reporting, so without this a plain drag
+ * never selects (only Shift+drag does) and copy-on-select / Ctrl+C have nothing
+ * to copy. By swallowing the mode-set sequences here, `areMouseEventsActive`
+ * stays false, xterm keeps ownership of the mouse, and plain-drag selection +
+ * copy work like a normal terminal. The cost is that the CLI no longer receives
+ * mouse click/scroll events (it is keyboard-driven; xterm scrolls scrollback on
+ * wheel itself).
+ *
+ * Only the X10/VT200/button/any-event mouse REPORTING modes (1000–1003) are
+ * removed. Encoding modes (1005/1006/1015/1016), alt-screen (1049), bracketed
+ * paste (2004), cursor keys, etc. are left untouched. Semicolon-combined
+ * parameter lists (e.g. `\x1b[?1002;1006h`) are handled by removing only the
+ * mouse-reporting members and preserving the rest.
+ *
+ * @param {string} data - raw chunk written from the PTY toward the terminal.
+ * @returns {string} the chunk with mouse-reporting mode-set sequences removed.
+ */
+const MOUSE_REPORT_MODES = new Set(['1000', '1001', '1002', '1003']);
+
+function stripMouseTrackingSequences(data) {
+  if (typeof data !== 'string' || data.indexOf('\x1b[?') === -1) return data;
+  // Matches a private-mode set/reset: ESC [ ? <params> (h|l)
+  return data.replace(/\x1b\[\?([0-9;]+)([hl])/g, (match, params, suffix) => {
+    const kept = params.split(';').filter(p => p !== '' && !MOUSE_REPORT_MODES.has(p));
+    if (kept.length === params.split(';').filter(p => p !== '').length) return match; // nothing removed
+    if (kept.length === 0) return '';
+    return `\x1b[?${kept.join(';')}${suffix}`;
+  });
+}
+
+/**
  * Creates the xterm custom key event handler for a terminal session.
  *
  * Returns false  → let the event bubble up to the document-level keydown handler.
@@ -96,12 +165,21 @@ function createTerminalKeyHandler(sessionId, terminal, api, hooks = {}) {
     // Bubble Ctrl+F for in-session search
     if (mod && !e.shiftKey && lowerKey === 'f') return false;
 
-    // Ctrl+C with a selection → copy to clipboard instead of sending SIGINT
+    // Ctrl+C with a selection → copy to clipboard instead of sending SIGINT.
+    // With mouse-reporting stripped from the PTY stream (see
+    // stripMouseTrackingSequences), a plain drag now creates a real xterm model
+    // selection, so this single check covers both plain-drag and Shift+drag.
+    // Browser-native selection never exists over the terminal (xterm sets
+    // `user-select: none` and preventDefaults mousedown), so xterm's own
+    // selection model is the sole source of truth here.
     if (mod && lowerKey === 'c' && terminal.hasSelection()) {
-      e.preventDefault();
-      api.copyText(terminal.getSelection());
-      terminal.clearSelection();
-      return false;
+      const selection = terminal.getSelection();
+      if (selection.trim()) {
+        e.preventDefault();
+        api.copyText(stripTerminalScrollbar(selection));
+        terminal.clearSelection();
+        return false;
+      }
     }
 
     // Ctrl+Backspace → delete previous word (sends \x17, equivalent to Ctrl+W in Unix shells)
@@ -147,4 +225,4 @@ function createTerminalKeyHandler(sessionId, terminal, api, hooks = {}) {
   };
 }
 
-module.exports = { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText };
+module.exports = { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, isCopyShortcut };

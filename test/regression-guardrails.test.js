@@ -120,6 +120,26 @@ describe('main process session creation — regression guardrails', () => {
     expect(MAIN_SRC).toMatch(/ptyManager\.newSession\(undefined,\s*launcher,\s*\['-i', oneLineCommand\],\s*launcherArgs\)/);
   });
 
+  it('supports one-off new-session launcher args without mutating global settings', () => {
+    expect(MAIN_SRC).toMatch(/resolveNewSessionLaunchRequest\(request\)/);
+    expect(MAIN_SRC).toMatch(/Object\.prototype\.hasOwnProperty\.call\(request,\s*'launcherArgs'\)/);
+    expect(MAIN_SRC).toMatch(/hasOneOffArgs && typeof request\.launcherArgs !== 'string'/);
+    expect(MAIN_SRC).toMatch(/parseLauncherArgs\(launcherArgs\)/);
+    expect(MAIN_SRC).toMatch(/oneOff \? null : ptyManager\.claimStandby/);
+    expect(MAIN_SRC).toMatch(/saveLauncherArgs\(sessionId,\s*launcherArgs\)/);
+    expect(RENDERER_SRC).toMatch(/newSession\(\{ launcher,\s*launcherArgs \}\)/);
+    expect(RENDERER_SRC).toMatch(/getAnyOneOffLauncherAvailability\(settings\)/);
+    expect(RENDERER_SRC).toMatch(/const oneOffAvailability = getAnyOneOffLauncherAvailability\(settings\)/);
+    expect(RENDERER_SRC).toMatch(/btnNewOptions\.classList\.toggle\('is-blocked', optionsBlocked\)/);
+    expect(RENDERER_SRC).toMatch(/newSessionLauncherCopilotInput\.disabled = !copilotAvailable/);
+    expect(RENDERER_SRC).toMatch(/newSessionLauncherAgencyInput\.disabled = !agencyAvailable/);
+    expect(RENDERER_SRC).toMatch(/function isBlockingModalOpen\(\)/);
+    expect(RENDERER_SRC).toMatch(/window\.api\.onRestoreTabShortcut\(\(\) => \{[\s\S]*?if \(isBlockingModalOpen\(\)\) return;/);
+    expect(RENDERER_SRC).toMatch(/if \(isBlockingModalOpen\(\)\) \{[\s\S]*?e\.preventDefault\(\)[\s\S]*?return/);
+    expect(RENDERER_SRC).toMatch(/newSessionOptionsOverlay[\s\S]*?e\.key === 'Escape'[\s\S]*?e\.stopPropagation\(\)/);
+    expect(RENDERER_SRC).not.toMatch(/updateSettings\(\{\s*copilotArgs:\s*launcherArgs/);
+  });
+
   it('uses an absolute Windows command processor path for .cmd launchers', () => {
     expect(PTY_MANAGER_SRC).toMatch(/this\._cmdPath\s*=\s*options\.cmdPath/);
     expect(PTY_MANAGER_SRC).toMatch(/file:\s*this\._cmdPath/);

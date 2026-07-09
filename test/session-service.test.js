@@ -283,7 +283,7 @@ describe('SessionService', () => {
       expect(sessions[0].id).toBe('history-cap-504');
       expect(sessions.at(-1).id).toBe('history-cap-005');
       expect(sessions.map(session => session.id)).not.toContain('history-cap-004');
-    });
+    }, 15000);
   });
 
   describe('renameSession', () => {

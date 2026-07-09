@@ -2,7 +2,7 @@ const { Terminal } = require('@xterm/xterm');
 const { FitAddon } = require('@xterm/addon-fit');
 const { WebLinksAddon } = require('@xterm/addon-web-links');
 const { deriveSessionState, getNewSessionAvailability, filterSessionsForSidebar } = require('./session-state');
-const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText } = require('./keyboard-shortcuts');
+const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, isCopyShortcut } = require('./keyboard-shortcuts');
 const { collectTerminalSearchMatches } = require('./terminal-search');
 const { resolveSidebarDragWidth } = require('./sidebar-resize');
 const { rememberRestorableClosedSession, peekRestorableClosedSession, forgetRestorableClosedSession } = require('./recently-closed');
@@ -58,6 +58,7 @@ let sidebarCollapsedBeforeHidden = false;
 let lastExpandedSidebarWidth = 280;
 let statusPanelRequestSeq = 0;
 let lastFocusedElementBeforeSettings = null;
+let lastFocusedElementBeforeNewSessionOptions = null;
 const sessionPromptGhostState = new Map();
 let statusDiffPopover = null;
 let statusDiffHideTimer = null;
@@ -135,6 +136,7 @@ const tabScrollLeft = terminalTabs.querySelector('.tab-scroll-left');
 const tabScrollRight = terminalTabs.querySelector('.tab-scroll-right');
 const emptyState = document.getElementById('empty-state');
 const btnNew = document.getElementById('btn-new');
+const btnNewOptions = document.getElementById('btn-new-options');
 const btnNewCenter = document.getElementById('btn-new-center');
 const maxConcurrentInput = document.getElementById('max-concurrent');
 const useAgencyCopilotInput = document.getElementById('use-agency-copilot');
@@ -149,6 +151,17 @@ const btnInstructions = document.getElementById('btn-instructions');
 const btnCloseInstructions = document.getElementById('btn-close-instructions');
 const terminalArea = document.getElementById('terminal-area');
 const settingsOverlay = document.getElementById('settings-overlay');
+const newSessionOptionsOverlay = document.getElementById('new-session-options-overlay');
+const btnNewSessionOptionsClose = document.getElementById('btn-new-session-options-close');
+const btnNewSessionOptionsCancel = document.getElementById('btn-new-session-options-cancel');
+const btnNewSessionOptionsStart = document.getElementById('btn-new-session-options-start');
+const newSessionArgsInput = document.getElementById('new-session-args');
+const newSessionLauncherCopilotInput = document.getElementById('new-session-launcher-copilot');
+const newSessionLauncherCopilotRow = document.getElementById('new-session-launcher-copilot-row');
+const newSessionLauncherCopilotDesc = document.getElementById('new-session-launcher-copilot-desc');
+const newSessionLauncherAgencyInput = document.getElementById('new-session-launcher-agency');
+const newSessionLauncherAgencyRow = document.getElementById('new-session-launcher-agency-row');
+const newSessionLauncherAgencyDesc = document.getElementById('new-session-launcher-agency-desc');
 const btnSettings = document.getElementById('btn-settings');
 const statusPanel = document.getElementById('status-panel');
 const statusPanelBody = document.getElementById('status-panel-body');
@@ -189,12 +202,16 @@ const OVERLAY_BASE_PX = 140;
 const DEFAULT_AGENCY_LAUNCHER_TEXT = 'Launch new sessions with agency copilot instead of the default Copilot CLI command';
 const DEFAULT_NEW_SESSION_TITLE = 'New Session (Ctrl+N)';
 const DEFAULT_NEW_SESSION_CENTER_TITLE = 'New Session (Ctrl+N)';
+const DEFAULT_NEW_SESSION_OPTIONS_TITLE = 'New Session with custom launcher args';
 
 function updateNewSessionAvailabilityState(settings = {}) {
   const availability = getNewSessionAvailability(settings);
   const blocked = !availability.available;
+  const oneOffAvailability = getAnyOneOffLauncherAvailability(settings);
+  const optionsBlocked = !oneOffAvailability.available;
   const title = blocked ? availability.reason : DEFAULT_NEW_SESSION_TITLE;
   const centerTitle = blocked ? availability.reason : DEFAULT_NEW_SESSION_CENTER_TITLE;
+  const optionsTitle = optionsBlocked ? oneOffAvailability.reason : DEFAULT_NEW_SESSION_OPTIONS_TITLE;
 
   for (const button of [btnNew, btnNewCenter]) {
     if (!button) continue;
@@ -202,10 +219,59 @@ function updateNewSessionAvailabilityState(settings = {}) {
     button.setAttribute('aria-disabled', blocked ? 'true' : 'false');
   }
 
+  if (btnNewOptions) {
+    btnNewOptions.classList.toggle('is-blocked', optionsBlocked);
+    btnNewOptions.setAttribute('aria-disabled', optionsBlocked ? 'true' : 'false');
+  }
+
   btnNew.title = title;
   btnNewCenter.title = centerTitle;
+  if (btnNewOptions) btnNewOptions.title = optionsTitle;
 
   return availability;
+}
+
+function getOneOffLauncherAvailability(settings = {}, launcher = 'copilot') {
+  if (launcher === 'agency') {
+    return settings.agencyAvailable === false
+      ? { available: false, launcher: 'agency', reason: 'Agency is not installed on this machine.' }
+      : { available: true, launcher: 'agency', reason: '' };
+  }
+
+  return settings.copilotAvailable === false
+    ? { available: false, launcher: 'copilot', reason: 'GitHub Copilot CLI is not installed.' }
+    : { available: true, launcher: 'copilot', reason: '' };
+}
+
+function getAnyOneOffLauncherAvailability(settings = {}) {
+  const copilot = getOneOffLauncherAvailability(settings, 'copilot');
+  const agency = getOneOffLauncherAvailability(settings, 'agency');
+  return {
+    available: copilot.available || agency.available,
+    launcher: copilot.available ? 'copilot' : 'agency',
+    reason: copilot.available || agency.available
+      ? ''
+      : 'New sessions are unavailable because neither GitHub Copilot CLI nor Agency is installed.',
+  };
+}
+
+function updateOneOffLauncherChoices(settings = {}) {
+  const copilotAvailable = settings.copilotAvailable !== false;
+  const agencyAvailable = settings.agencyAvailable !== false;
+  newSessionLauncherCopilotInput.disabled = !copilotAvailable;
+  newSessionLauncherCopilotRow?.classList.toggle('disabled', !copilotAvailable);
+  if (newSessionLauncherCopilotDesc) {
+    newSessionLauncherCopilotDesc.textContent = copilotAvailable
+      ? 'Run copilot for this session only'
+      : 'GitHub Copilot CLI is not installed on this machine.';
+  }
+  newSessionLauncherAgencyInput.disabled = !agencyAvailable;
+  newSessionLauncherAgencyRow?.classList.toggle('disabled', !agencyAvailable);
+  if (newSessionLauncherAgencyDesc) {
+    newSessionLauncherAgencyDesc.textContent = agencyAvailable
+      ? 'Run agency copilot for this session only'
+      : 'Agency is not installed on this machine.';
+  }
 }
 
 async function syncTitlebarPadding() {
@@ -223,6 +289,11 @@ function announceLiveMessage(message) {
   setTimeout(() => {
     notificationLiveRegion.textContent = message;
   }, 0);
+}
+
+function isBlockingModalOpen() {
+  return !newSessionOptionsOverlay.classList.contains('hidden') ||
+    !settingsOverlay.classList.contains('hidden');
 }
 
 function getFocusableElements(root) {
@@ -887,7 +958,9 @@ async function init() {
   ipcCleanups.push(window.api.onPtyData((sessionId, data) => {
     const entry = terminals.get(sessionId);
     if (entry) {
-      entry.terminal.write(data, () => {
+      // Strip the CLI's mouse-reporting mode-set sequences so xterm keeps
+      // ownership of the mouse and plain-drag text selection / copy work.
+      entry.terminal.write(stripMouseTrackingSequences(data), () => {
         scheduleTerminalViewportSync(sessionId, { refreshSearch: true });
       });
     }
@@ -909,6 +982,7 @@ async function init() {
     if (!wasAlive) schedulePatchSessionStateBadges(sessionId);
   }));
   ipcCleanups.push(window.api.onRestoreTabShortcut(() => {
+    if (isBlockingModalOpen()) return;
     void restoreMostRecentClosedTab();
   }));
 
@@ -1000,6 +1074,41 @@ async function init() {
 
   // Settings modal
   btnSettings.addEventListener('click', () => { void openSettings(); });
+  btnNewOptions?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    void openNewSessionOptions();
+  });
+  btnNewSessionOptionsClose?.addEventListener('click', closeNewSessionOptions);
+  btnNewSessionOptionsCancel?.addEventListener('click', closeNewSessionOptions);
+  btnNewSessionOptionsStart?.addEventListener('click', () => {
+    startNewSessionFromOptions().catch((err) => {
+      showToast({ type: 'error', title: 'Could not start new session', body: String(err?.message || err) });
+    });
+  });
+  newSessionOptionsOverlay?.addEventListener('click', (e) => { if (e.target === newSessionOptionsOverlay) closeNewSessionOptions(); });
+  newSessionOptionsOverlay?.addEventListener('keydown', (e) => {
+    if (newSessionOptionsOverlay.classList.contains('hidden')) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeNewSessionOptions();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const focusable = getFocusableElements(newSessionOptionsOverlay);
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      e.stopPropagation();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      e.stopPropagation();
+      first.focus();
+    }
+  });
 
   // Home link — deselect active session
   document.getElementById('titlebar-home').addEventListener('click', showHome);
@@ -1009,6 +1118,7 @@ async function init() {
     if (settingsOverlay.classList.contains('hidden')) return;
     if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       closeSettings();
       return;
     }
@@ -1019,9 +1129,11 @@ async function init() {
     const last = focusable[focusable.length - 1];
     if (e.shiftKey && document.activeElement === first) {
       e.preventDefault();
+      e.stopPropagation();
       last.focus();
     } else if (!e.shiftKey && document.activeElement === last) {
       e.preventDefault();
+      e.stopPropagation();
       first.focus();
     }
   });
@@ -1242,6 +1354,51 @@ async function openSettings() {
   requestAnimationFrame(() => {
     (settingsOverlay.querySelector('.settings-tab.active') || settingsOverlay.querySelector('.settings-close'))?.focus();
   });
+}
+
+async function openNewSessionOptions() {
+  const settings = await window.api.getSettings();
+  applySettingsToControls(settings);
+  const availability = getAnyOneOffLauncherAvailability(settings);
+  if (!availability.available) {
+    showToast({ type: 'error', title: 'New session unavailable', body: availability.reason });
+    return;
+  }
+  updateOneOffLauncherChoices(settings);
+  lastFocusedElementBeforeNewSessionOptions = document.activeElement;
+
+  const defaultLauncher = settings.useAgencyCopilot && settings.agencyAvailable !== false
+    ? 'agency'
+    : availability.launcher;
+  newSessionLauncherCopilotInput.checked = defaultLauncher === 'copilot';
+  newSessionLauncherAgencyInput.checked = defaultLauncher === 'agency';
+  newSessionArgsInput.value = settings.copilotArgs || '';
+
+  newSessionOptionsOverlay.classList.remove('hidden');
+  newSessionOptionsOverlay.setAttribute('aria-hidden', 'false');
+  requestAnimationFrame(() => {
+    (newSessionArgsInput || btnNewSessionOptionsStart)?.focus();
+  });
+}
+
+function closeNewSessionOptions() {
+  newSessionOptionsOverlay.classList.add('hidden');
+  newSessionOptionsOverlay.setAttribute('aria-hidden', 'true');
+  lastFocusedElementBeforeNewSessionOptions?.focus?.();
+  lastFocusedElementBeforeNewSessionOptions = null;
+}
+
+async function startNewSessionFromOptions() {
+  const launcher = newSessionLauncherAgencyInput.checked ? 'agency' : 'copilot';
+  const settings = window._cachedSettings || await window.api.getSettings();
+  const availability = getOneOffLauncherAvailability(settings, launcher);
+  if (!availability.available) {
+    showToast({ type: 'error', title: 'New session unavailable', body: availability.reason });
+    return;
+  }
+  const launcherArgs = newSessionArgsInput.value.trim();
+  closeNewSessionOptions();
+  await newSession({ launcher, launcherArgs });
 }
 
 // Settings tab switching
@@ -2608,13 +2765,16 @@ async function openSession(sessionId) {
   }
 }
 
-async function newSession() {
+async function newSession(launchOverrides = null) {
   if (creatingSession) return;
 
   const settings = await window.api.getSettings();
   applySettingsToControls(settings);
 
-  const availability = getNewSessionAvailability(settings);
+  const oneOffLauncher = launchOverrides?.launcher;
+  const availability = oneOffLauncher
+    ? getOneOffLauncherAvailability(settings, oneOffLauncher)
+    : getNewSessionAvailability(settings);
   if (!availability.available) {
     showToast({ type: 'error', title: 'New session unavailable', body: availability.reason });
     return;
@@ -2633,7 +2793,10 @@ async function newSession() {
       cwd = settings.defaultWorkdir;
     }
 
-    const result = await window.api.newSession(cwd);
+    const request = launchOverrides
+      ? { cwd, launcher: launchOverrides.launcher, launcherArgs: launchOverrides.launcherArgs || '' }
+      : cwd;
+    const result = await window.api.newSession(request);
     // session:new now returns { sessionId, bufferedData } so we can write the
     // pre-warm CLI output AFTER createTerminal, avoiding the race where a
     // 'pty:data' event arrived before terminals.get(sessionId) was defined
@@ -2647,7 +2810,7 @@ async function newSession() {
     if (bufferedData) {
       const termEntry = terminals.get(sessionId);
       if (termEntry) {
-        termEntry.terminal.write(bufferedData, () => {
+        termEntry.terminal.write(stripMouseTrackingSequences(bufferedData), () => {
           scheduleTerminalViewportSync(sessionId, { refreshSearch: true });
         });
       }
@@ -2734,29 +2897,29 @@ function createTerminal(sessionId) {
     scheduleTerminalViewportSync(sessionId);
   });
 
-  // Copy-on-select: mirror the active selection to the clipboard, matching
-  // PuTTY/Windows Terminal behavior. Two sources must be handled:
-  //   1. xterm's own selection (Shift+drag, or when the app has no mouse mode)
-  //      → terminal.getSelection(), surfaced via onSelectionChange.
-  //   2. The native DOM selection produced by a plain click+drag while the
-  //      embedded CLI has mouse-reporting on. In that mode xterm forwards mouse
-  //      events to the PTY and its own selection stays empty, but the DOM
-  //      renderer's text still gets a browser selection. We capture that on
-  //      mouseup via window.getSelection().
-  // Both are gated on the setting and skip empty selections so a plain click
-  // doesn't clobber the clipboard.
-  terminal.onSelectionChange(() => {
+  // Copy-on-select: mirror xterm's selection to the clipboard, matching
+  // PuTTY/Windows Terminal behavior. Because we strip the CLI's mouse-reporting
+  // sequences (see stripMouseTrackingSequences), xterm keeps mouse ownership and
+  // a plain click+drag now produces a real xterm model selection here — no DOM
+  // selection fallback is needed (xterm sets `user-select: none`, so a browser
+  // selection never exists over the terminal). Gated on the setting; skips empty
+  // selections so a plain click doesn't clobber the clipboard.
+  const copySelectionToClipboard = () => {
     if (window._cachedSettings?.copyOnSelect === false) return;
+    if (!terminal.hasSelection()) return;
     const selection = terminal.getSelection();
-    if (selection) window.api.copyText(selection);
-  });
-
+    if (selection && selection.trim()) window.api.copyText(stripTerminalScrollbar(selection));
+  };
+  // onSelectionChange covers keyboard/Shift selection changes. A mouseup handler
+  // is the reliable trigger for a plain click+drag: xterm finalizes the model
+  // selection on mouseup, and reading it here mirrors the (working) Ctrl+C path
+  // exactly, so copy-on-select lands even if onSelectionChange doesn't fire a
+  // final event for the drag.
+  terminal.onSelectionChange(copySelectionToClipboard);
   wrapper.addEventListener('mouseup', () => {
-    if (window._cachedSettings?.copyOnSelect === false) return;
-    // xterm's own selection (if any) is already handled by onSelectionChange.
-    if (terminal.hasSelection()) return;
-    const domSelection = window.getSelection()?.toString();
-    if (domSelection && domSelection.trim()) window.api.copyText(domSelection);
+    // Defer one tick so xterm's SelectionService has committed the selection
+    // for this mouseup before we read it.
+    setTimeout(copySelectionToClipboard, 0);
   });
 
   // Defense-in-depth: own browser-level paste events too. Electron/Chromium can
@@ -4865,6 +5028,28 @@ document.addEventListener('wheel', (e) => {
   applyZoom(e.deltaY < 0 ? 'in' : 'out');
 }, { passive: false });
 
+// Global copy for regular DOM UI (status panel, sidebar, commits list, etc.).
+// The app uses a custom Electron menu without the native Copy role so xterm can
+// own Ctrl+C inside the terminal; that also removes the default Ctrl+C
+// accelerator for ordinary selectable DOM. This restores it: when the user has
+// a text selection OUTSIDE the terminal and presses Ctrl+C / Ctrl+Insert, copy
+// it through the clipboard IPC. Selections inside the terminal are left to the
+// terminal's own key handler and copy-on-select path.
+document.addEventListener('keydown', (e) => {
+  if (!isCopyShortcut(e)) return;
+  const active = document.activeElement;
+  // Focus is in the terminal → its custom key handler owns Ctrl+C.
+  if (active?.classList?.contains('xterm-helper-textarea')) return;
+  const sel = window.getSelection();
+  const text = sel?.toString() || '';
+  if (!text.trim()) return;
+  // Defensive: if the selection lives inside a terminal wrapper, defer to the
+  // terminal's copy path (copy-on-select already mirrored it to the clipboard).
+  if (sel.anchorNode?.parentElement?.closest?.('.terminal-wrapper')) return;
+  e.preventDefault();
+  window.api.copyText(text);
+});
+
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
   const shortcutAction = getGlobalShortcutAction(e, {
@@ -4872,6 +5057,10 @@ document.addEventListener('keydown', (e) => {
     hasActiveSession: !!(activeSessionId && terminals.has(activeSessionId)),
   });
   if (shortcutAction) {
+    if (isBlockingModalOpen()) {
+      e.preventDefault();
+      return;
+    }
     e.preventDefault();
     switch (shortcutAction.type) {
       case 'new-session':
@@ -4921,6 +5110,8 @@ document.addEventListener('keydown', (e) => {
       hideContextMenu();
     } else if (!notificationPanel.classList.contains('hidden')) {
       notificationPanel.classList.add('hidden');
+    } else if (!newSessionOptionsOverlay.classList.contains('hidden')) {
+      closeNewSessionOptions();
     } else if (!settingsOverlay.classList.contains('hidden')) {
       closeSettings();
     } else if (!instructionsPanel.classList.contains('hidden')) {

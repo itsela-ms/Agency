@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('api', {
   openSessionFilesDirectory: (sessionId) => ipcRenderer.invoke('session:openFilesDirectory', sessionId),
   openGeneratedFile: (sessionId, relativePath) => ipcRenderer.invoke('session:openGeneratedFile', sessionId, relativePath),
   openSession: (sessionId) => ipcRenderer.invoke('session:open', sessionId),
-  newSession: (cwd) => ipcRenderer.invoke('session:new', cwd),
+  newSession: (request) => ipcRenderer.invoke('session:new', request),
   killSession: (sessionId) => ipcRenderer.invoke('pty:kill', sessionId),
   pickDirectory: (defaultPath) => ipcRenderer.invoke('dialog:pickDirectory', defaultPath),
   changeCwd: (sessionId, cwd) => ipcRenderer.invoke('session:changeCwd', sessionId, cwd),

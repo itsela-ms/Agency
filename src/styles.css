@@ -397,8 +397,13 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.new-session-actions {
+  display: flex;
+  gap: 6px;
+}
+
 #btn-new {
-  width: 100%;
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -418,16 +423,44 @@ body {
   background: var(--accent-hover);
 }
 
+#btn-new-options {
+  width: 34px;
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
+  background: var(--bg-overlay);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+#btn-new-options:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+
 #btn-new.is-blocked,
-#btn-new-center.is-blocked {
+#btn-new-center.is-blocked,
+#btn-new-options.is-blocked {
   background: var(--surface1);
   color: var(--text-dim);
   cursor: not-allowed;
+  border-color: var(--surface1);
 }
 
 #btn-new.is-blocked:hover,
-#btn-new-center.is-blocked:hover {
+#btn-new-center.is-blocked:hover,
+#btn-new-options.is-blocked:hover {
   background: var(--surface1);
+  color: var(--text-dim);
 }
 
 .btn-icon {
@@ -442,6 +475,10 @@ body {
 
 #sidebar.collapsed #btn-new {
   padding: 10px 8px;
+}
+
+#sidebar.collapsed #btn-new-options {
+  display: none;
 }
 
 #sidebar.collapsed #btn-new .btn-label {
@@ -1841,6 +1878,18 @@ body {
   flex-direction: column;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
 }
+
+.new-session-options-modal {
+  width: 460px;
+}
+
+.new-session-options-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--border);
+}
 .settings-modal::-webkit-scrollbar { width: 6px; }
 .settings-modal::-webkit-scrollbar-track { background: transparent; }
 .settings-modal::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
@@ -1979,6 +2028,23 @@ body {
 
 .settings-row:last-child {
   margin-bottom: 0;
+}
+
+.launcher-radio-row {
+  cursor: pointer;
+}
+
+.launcher-radio-row input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+.launcher-radio-row.disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
+.launcher-radio-row.disabled input[type="radio"] {
+  cursor: not-allowed;
 }
 
 .settings-row-text {
