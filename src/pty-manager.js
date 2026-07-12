@@ -154,25 +154,52 @@ class PtyManager extends EventEmitter {
   // Default discoverer: poll session-state dir until a folder not present in
   // `beforeSnapshot` shows up. Folder appears within ~3s in practice; we wait
   // up to `_discoveryTimeoutMs` (10s default) before giving up.
-  async _defaultDiscoverer(beforeSnapshot /* , ptyProcess */) {
+  async _defaultDiscoverer(beforeSnapshot, ptyProcess) {
     const start = Date.now();
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-    while (Date.now() - start < this._discoveryTimeoutMs) {
-      let entries;
-      try {
-        entries = await fs.promises.readdir(this._sessionStateDir, { withFileTypes: true });
-      } catch {
-        await sleep(DEFAULT_DISCOVERY_POLL_INTERVAL_MS);
-        continue;
-      }
-      for (const e of entries) {
-        if (e.isDirectory() && isValidSessionId(e.name) && !beforeSnapshot.has(e.name)) {
-          return e.name;
+    const startupOutput = [];
+    let exitCode = null;
+    const dataDisposable = ptyProcess?.onData?.((data) => {
+      if (startupOutput.join('').length < 4000) startupOutput.push(String(data || ''));
+    });
+    const exitDisposable = ptyProcess?.onExit?.(({ exitCode: code }) => {
+      exitCode = code;
+    });
+
+    const startupFailure = () => {
+      if (exitCode === null) return null;
+      const output = startupOutput
+        .join('')
+        .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+        .trim()
+        .slice(0, 1000);
+      return `CLI exited before creating session-state folder (exit code ${exitCode})${output ? `: ${output}` : ''}`;
+    };
+
+    try {
+      while (Date.now() - start < this._discoveryTimeoutMs) {
+        const failure = startupFailure();
+        if (failure) throw new Error(failure);
+
+        let entries;
+        try {
+          entries = await fs.promises.readdir(this._sessionStateDir, { withFileTypes: true });
+        } catch {
+          await sleep(DEFAULT_DISCOVERY_POLL_INTERVAL_MS);
+          continue;
         }
+        for (const e of entries) {
+          if (e.isDirectory() && isValidSessionId(e.name) && !beforeSnapshot.has(e.name)) {
+            return e.name;
+          }
+        }
+        await sleep(DEFAULT_DISCOVERY_POLL_INTERVAL_MS);
       }
-      await sleep(DEFAULT_DISCOVERY_POLL_INTERVAL_MS);
+      throw new Error('Timed out waiting for CLI session-state folder to appear');
+    } finally {
+      dataDisposable?.dispose?.();
+      exitDisposable?.dispose?.();
     }
-    throw new Error('Timed out waiting for CLI session-state folder to appear');
   }
 
   openSession(sessionId, cwd, launcher, launcherArgsText = '') {

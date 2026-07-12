@@ -3,7 +3,7 @@ const path = require('path');
 const readline = require('readline');
 
 const CACHE_FILE = 'session-resources.json';
-const RESOURCE_INDEX_VERSION = 4;
+const RESOURCE_INDEX_VERSION = 5;
 const REBUILD_INTERVAL_MS = 10 * 60 * 1000;
 const VISIBLE_TEXT_KEYS = new Set(['content', 'text', 'body', 'title', 'summary', 'markdown', 'message']);
 const PR_STATUS_MAP = {
@@ -137,6 +137,42 @@ function canUseEventForPrStatus(event) {
   return event?.type === 'tool.execution_complete';
 }
 
+function collectWorkItemMetadataCandidates(value, metadata) {
+  if (!value) return;
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        collectWorkItemMetadataCandidates(JSON.parse(trimmed), metadata);
+      } catch {}
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectWorkItemMetadataCandidates(item, metadata);
+    return;
+  }
+
+  if (typeof value === 'object') {
+    const id = value.id ?? value.workItemId;
+    const title = value.fields?.['System.Title'] ?? value.fields?.System_Title;
+    const workItemType = value.fields?.['System.WorkItemType'] ?? value.fields?.System_WorkItemType ?? value.workItemType;
+    if (id !== undefined) {
+      const existing = metadata.get(String(id)) || {};
+      const next = { ...existing };
+      if (typeof title === 'string' && title.trim()) next.title = title.trim();
+      if (typeof workItemType === 'string' && workItemType.trim()) next.workItemType = workItemType.trim();
+      if (next.title || next.workItemType) metadata.set(String(id), next);
+    }
+    for (const nested of Object.values(value)) {
+      collectWorkItemMetadataCandidates(nested, metadata);
+    }
+  }
+}
+
 class ResourceIndexer {
   constructor(sessionStateDir) {
     this.sessionStateDir = sessionStateDir;
@@ -221,6 +257,7 @@ class ResourceIndexer {
 
     const prs = new Map();       // prId -> { id, url?, repo? }
     const workItems = new Map(); // wiId -> { id, url? }
+    const workItemMetadata = new Map(); // wiId -> title/type from visible/queried WI metadata
     const repos = new Set();     // repo URLs
     const wikiUrls = new Set();
     const pipelines = new Map(); // buildId -> { id, url }
@@ -266,7 +303,7 @@ class ResourceIndexer {
           while ((m = wiUrlRe.exec(text)) !== null) {
             const wiId = m[1];
             const url = stripTrailingUrlJunk(m[0]);
-            workItems.set(wiId, { id: wiId, url, type: 'workitem' });
+            workItems.set(wiId, { id: wiId, url, type: 'workitem', ...workItemMetadata.get(wiId) });
           }
 
           // Git repo URLs (exclude PR URLs)
@@ -318,6 +355,14 @@ class ResourceIndexer {
 
         if (canUseEventForPrStatus(event)) {
           let m;
+          collectWorkItemMetadataCandidates(event.data, workItemMetadata);
+          for (const [wiId, metadata] of workItemMetadata) {
+            const existing = workItems.get(wiId);
+            if (existing) {
+              if (!existing.title && metadata.title) existing.title = metadata.title;
+              if (!existing.workItemType && metadata.workItemType) existing.workItemType = metadata.workItemType;
+            }
+          }
 
           // PR status from tool payloads (e.g. "pullRequestId": 123, ..., "status": "Active")
           const prStatusRe = new RegExp(PR_STATUS_RE.source, 'gi');
@@ -425,6 +470,8 @@ class ResourceIndexer {
         if (r.id && r.id.includes(q)) { results.add(sessionId); break; }
         if (r.url && r.url.toLowerCase().includes(q)) { results.add(sessionId); break; }
         if (r.name && r.name.toLowerCase().includes(q)) { results.add(sessionId); break; }
+        if (r.title && r.title.toLowerCase().includes(q)) { results.add(sessionId); break; }
+        if (r.workItemType && r.workItemType.toLowerCase().includes(q)) { results.add(sessionId); break; }
         if (r.repo && r.repo.toLowerCase().includes(q)) { results.add(sessionId); break; }
       }
     }

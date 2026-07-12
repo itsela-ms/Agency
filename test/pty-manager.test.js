@@ -791,6 +791,35 @@ describe('PtyManager', () => {
       }
     });
 
+    it('fails fast with CLI startup output when the spawned process exits before creating a session folder', async () => {
+      const realFs = require('fs');
+      const realPath = require('path');
+      const realOs = require('os');
+      const tmp = realFs.mkdtempSync(realPath.join(realOs.tmpdir(), 'ds-pty-disc-'));
+      const mockPty = createMockPty();
+      try {
+        manager = new PtyManager('/fake/copilot',
+          { get: () => ({ maxConcurrent: 5 }) },
+          mockPtyModule,
+          { sessionStateDir: tmp, discoveryTimeoutMs: 3000 }
+        );
+        mockPtyModule.spawn.mockReturnValueOnce(mockPty);
+
+        vi.useRealTimers();
+        const newSessionPromise = manager.newSession('/cwd');
+        setTimeout(() => {
+          mockPty._emitData("error: unknown option '--mcp'\r\n");
+          mockPty._emitExit(1);
+        }, 50);
+
+        await expect(newSessionPromise).rejects.toThrow(/unknown option '--mcp'/);
+        expect(mockPty.kill).toHaveBeenCalled();
+      } finally {
+        vi.useFakeTimers();
+        realFs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+
     it('default discovery timeout is generous (≥ 30s) so heavy load does not falsely fail new sessions', () => {
       const realFs = require('fs');
       const src = realFs.readFileSync(require('path').join(__dirname, '..', 'src', 'pty-manager.js'), 'utf8');

@@ -2,6 +2,18 @@ const fs = require('fs');
 const path = require('path');
 const SAFE_COMMAND_NAME_RE = /^[a-zA-Z0-9._-]+$/;
 const UNSAFE_ARG_CHARS_RE = /[\0\r\n&|<>^]/;
+const SESSION_BREAKING_LAUNCHER_ARGS = new Set([
+  '--mcp',
+  '-p',
+  '--prompt',
+  '-i',
+  '--interactive',
+  '-r',
+  '--resume',
+  '--continue',
+  '--connect',
+  '--session-id',
+]);
 
 // Module-level cache for CLI path probes. resolveAgency/Copilot are called
 // on every settings:get, every session creation, and every warm-up — which
@@ -218,6 +230,10 @@ function parseLauncherArgs(value = '') {
   for (const arg of args) {
     if (UNSAFE_ARG_CHARS_RE.test(arg)) {
       throw new Error('Custom launcher arguments cannot contain shell control characters.');
+    }
+    const flag = arg.includes('=') ? arg.slice(0, arg.indexOf('=')) : arg;
+    if (SESSION_BREAKING_LAUNCHER_ARGS.has(flag)) {
+      throw new Error(`Custom launcher arguments cannot include ${flag}; it changes or prevents DeepSky's new interactive session creation.`);
     }
   }
 

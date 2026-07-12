@@ -12,6 +12,11 @@ describe('deriveSessionState', () => {
     expect(result).toEqual({ label: 'Working', cls: 'state-working', tip: 'AI is processing' });
   });
 
+  it('returns Starting for a launch pending real session id discovery', () => {
+    const result = deriveSessionState({ isRunning: false, isActive: false, hasPR: false, isHistory: false, isBusy: false, isStarting: true });
+    expect(result).toEqual({ label: 'Starting', cls: 'state-starting', tip: 'Starting session' });
+  });
+
   it('returns Waiting when running but not busy', () => {
     const result = deriveSessionState({ isRunning: true, isActive: true, hasPR: false, isHistory: false, isBusy: false });
     expect(result).toEqual({ label: 'Waiting', cls: 'state-waiting', tip: 'Waiting on user response' });

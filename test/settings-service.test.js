@@ -139,6 +139,19 @@ describe('SettingsService', () => {
       expect(saved.copilotArgs).toBe('');
       expect(saved.agencyCopilotArgs).toBeUndefined();
     });
+
+    it('migrates launcher args that would prevent new interactive sessions', async () => {
+      const configPath = path.join(tmpDir, 'session-gui-settings.json');
+      await fs.promises.writeFile(configPath, JSON.stringify({
+        copilotArgs: '--mcp gateway',
+      }), 'utf8');
+
+      await svc.load();
+
+      expect(svc.get().copilotArgs).toBe('');
+      const saved = JSON.parse(await fs.promises.readFile(configPath, 'utf8'));
+      expect(saved.copilotArgs).toBe('');
+    });
   });
 
   describe('defaultWorkdir', () => {

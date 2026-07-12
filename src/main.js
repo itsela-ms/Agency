@@ -133,6 +133,7 @@ const COPILOT_CONFIG_DIR = path.join(os.homedir(), '.copilot');
 const NOTIFICATIONS_DIR = path.join(COPILOT_CONFIG_DIR, 'notifications');
 const INSTRUCTIONS_PATH = path.join(COPILOT_CONFIG_DIR, 'copilot-instructions.md');
 const INSTRUCTION_BACKUPS_DIR = path.join(COPILOT_CONFIG_DIR, 'instruction-backups');
+const DEEPSKY_BROCHURE_URL = 'https://itsela-ms.github.io/DeepSky/deepsky-brochure.html';
 const enhanceInstructions = require('./enhance-instructions-service');
 
 function getNewSessionLauncher(settings) {
@@ -661,7 +662,7 @@ if (!hasSingleInstanceLock) {
       appPath: app.getAppPath(),
       documentsPath: app.getPath('documents'),
     });
-    return { available: brochureInfo.found };
+    return { available: true, localAvailable: brochureInfo.found };
   });
   ipcMain.handle('app:openBrochure', async () => {
     const brochureInfo = resolveBrochureInfo({
@@ -669,7 +670,8 @@ if (!hasSingleInstanceLock) {
       documentsPath: app.getPath('documents'),
     });
     if (!brochureInfo.found || !brochureInfo.path) {
-      return { ok: false, error: 'DeepSky brochure was not found on this machine.' };
+      await shell.openExternal(DEEPSKY_BROCHURE_URL);
+      return { ok: true, fallback: 'online' };
     }
 
     const error = await shell.openPath(brochureInfo.path);

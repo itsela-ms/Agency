@@ -586,6 +586,14 @@ body {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
+.session-item.starting {
+  cursor: wait;
+}
+
+.session-item.starting .session-title {
+  color: var(--text-dim);
+}
+
 .session-item.running:hover::after {
   display: none;
 }
@@ -630,6 +638,20 @@ body {
   background: var(--yellow);
   border-radius: 50%;
   box-shadow: 0 0 6px color-mix(in srgb, var(--yellow) 40%, transparent);
+  transition: background 140ms ease, box-shadow 140ms ease;
+  display: none;
+}
+
+.session-item.starting::after {
+  content: '';
+  position: absolute;
+  top: 14px;
+  right: 12px;
+  width: 7px;
+  height: 7px;
+  background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 45%, transparent);
   transition: background 140ms ease, box-shadow 140ms ease;
   display: none;
 }
@@ -715,6 +737,11 @@ body {
 .session-state.state-waiting {
   background: color-mix(in srgb, var(--yellow) 15%, transparent);
   color: var(--yellow);
+}
+
+.session-state.state-starting {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
 }
 
 .session-state.state-pending {
@@ -1394,6 +1421,12 @@ body {
 #sidebar.collapsed .session-item.running.busy::after {
   background: #22c55e;
   box-shadow: 0 0 6px color-mix(in srgb, #22c55e 55%, transparent);
+}
+
+#sidebar.collapsed .session-item.starting::after {
+  display: block;
+  background: #3b82f6;
+  box-shadow: 0 0 6px color-mix(in srgb, #3b82f6 55%, transparent);
 }
 
 /* Empty state */
@@ -3121,6 +3154,15 @@ body {
   font-family: 'Cascadia Code', monospace;
   font-size: 11px;
 }
+.status-resource-type {
+  color: var(--yellow);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.status-resource-title {
+  color: var(--text);
+}
 .status-pr-state {
   font-size: 10px;
   padding: 1px 5px;
@@ -3381,6 +3423,20 @@ button:focus-visible, .tab:focus-visible, .session-item:focus-visible {
   border-color: var(--border);
   cursor: not-allowed;
   opacity: 0.65;
+}
+
+.about-contact {
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.about-contact-copy {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.45;
+  margin-bottom: 10px;
 }
 
 .about-changelog {

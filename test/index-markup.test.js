@@ -97,8 +97,15 @@ describe('index.html accessibility regressions', () => {
     expect(html).toContain('id="about-release-meta"');
     expect(html).toContain('id="about-open-brochure"');
     expect(html).toContain('id="about-open-changelog"');
+    expect(html).toContain('id="about-contact-email"');
+    expect(html).toContain('id="about-contact-teams"');
     expect(html).toContain('Open brochure');
     expect(html).toContain('Open full changelog');
+    expect(html).toContain('Contact &amp; feedback');
+    expect(html).toContain('>Email</button>');
+    expect(html).toContain('>Teams</button>');
+    expect(html).not.toContain('Email Itay');
+    expect(html).not.toContain('Open Teams chat');
     expect(html).toContain('Recent release notes');
   });
 

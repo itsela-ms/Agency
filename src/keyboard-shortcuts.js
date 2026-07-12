@@ -103,20 +103,20 @@ function stripTerminalScrollbar(text) {
  * never selects (only Shift+drag does) and copy-on-select / Ctrl+C have nothing
  * to copy. By swallowing the mode-set sequences here, `areMouseEventsActive`
  * stays false, xterm keeps ownership of the mouse, and plain-drag selection +
- * copy work like a normal terminal. The cost is that the CLI no longer receives
- * mouse click/scroll events (it is keyboard-driven; xterm scrolls scrollback on
- * wheel itself).
+ * copy work like a normal terminal. Wheel events are forwarded explicitly from
+ * the renderer while the CLI has mouse tracking enabled so scrollable CLI panes
+ * still work.
  *
  * Only the X10/VT200/button/any-event mouse REPORTING modes (1000–1003) are
- * removed. Encoding modes (1005/1006/1015/1016), alt-screen (1049), bracketed
- * paste (2004), cursor keys, etc. are left untouched. Semicolon-combined
+ * removed, along with mouse encoding modes (1005/1006/1015/1016). Alt-screen
+ * (1049), bracketed paste (2004), cursor keys, etc. are left untouched. Semicolon-combined
  * parameter lists (e.g. `\x1b[?1002;1006h`) are handled by removing only the
  * mouse-reporting members and preserving the rest.
  *
  * @param {string} data - raw chunk written from the PTY toward the terminal.
  * @returns {string} the chunk with mouse-reporting mode-set sequences removed.
  */
-const MOUSE_REPORT_MODES = new Set(['1000', '1001', '1002', '1003']);
+const MOUSE_REPORT_MODES = new Set(['1000', '1001', '1002', '1003', '1005', '1006', '1015', '1016']);
 
 function stripMouseTrackingSequences(data) {
   if (typeof data !== 'string' || data.indexOf('\x1b[?') === -1) return data;

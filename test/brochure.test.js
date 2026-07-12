@@ -12,17 +12,18 @@ import { join } from 'path';
 
 const PKG_PATH = join(__dirname, '..', 'package.json');
 const CHANGELOG_PATH = join(__dirname, '..', 'CHANGELOG.md');
-const BROCHURE_PATH = join(
+const LOCAL_BROCHURE_PATH = join(
   process.env.USERPROFILE || process.env.HOME,
   'OneDrive - Microsoft', 'Documents', 'deepsky-brochure.html'
 );
+const BROCHURE_PATH = join(__dirname, '..', 'docs', 'deepsky-brochure.html');
 
 let brochure, pkg, changelog;
 const brochureAvailable = (() => {
   try { readFileSync(BROCHURE_PATH); return true; } catch { return false; }
 })();
 
-// Skip all brochure tests on CI where the file doesn't exist (it lives in OneDrive)
+// Skip only if the checked-in Pages brochure is absent.
 const describeIfBrochure = brochureAvailable ? describe : describe.skip;
 
 beforeAll(() => {
@@ -37,6 +38,11 @@ describeIfBrochure('Brochure exists', () => {
   it('brochure file is readable', () => {
     expect(brochure).not.toBeNull();
     expect(brochure.length).toBeGreaterThan(1000);
+  });
+
+  it('brochure is checked into the GitHub Pages docs folder, not only OneDrive', () => {
+    expect(BROCHURE_PATH).toMatch(/docs[\\/]deepsky-brochure\.html$/);
+    expect(BROCHURE_PATH).not.toBe(LOCAL_BROCHURE_PATH);
   });
 });
 

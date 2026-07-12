@@ -415,9 +415,10 @@ describe('stripMouseTrackingSequences', () => {
     expect(stripMouseTrackingSequences('before\x1b[?1002hafter')).toBe('beforeafter');
   });
 
-  it('strips only mouse-reporting members from a combined parameter list', () => {
-    expect(stripMouseTrackingSequences('\x1b[?1002;1006h')).toBe('\x1b[?1006h');
-    expect(stripMouseTrackingSequences('\x1b[?1006;1002;1015h')).toBe('\x1b[?1006;1015h');
+  it('strips mouse-reporting and mouse-encoding members from a combined parameter list', () => {
+    expect(stripMouseTrackingSequences('\x1b[?1002;1006h')).toBe('');
+    expect(stripMouseTrackingSequences('\x1b[?1006;1002;1015h')).toBe('');
+    expect(stripMouseTrackingSequences('\x1b[?1002;1006;2004h')).toBe('\x1b[?2004h');
   });
 
   it('leaves unrelated private modes untouched (alt-screen, bracketed paste, cursor keys)', () => {
@@ -427,8 +428,11 @@ describe('stripMouseTrackingSequences', () => {
     expect(stripMouseTrackingSequences('\x1b[?25l')).toBe('\x1b[?25l');
   });
 
-  it('leaves SGR encoding mode (1006) alone when standalone', () => {
-    expect(stripMouseTrackingSequences('\x1b[?1006h')).toBe('\x1b[?1006h');
+  it('strips standalone mouse encoding modes because wheel forwarding is handled by the renderer', () => {
+    expect(stripMouseTrackingSequences('\x1b[?1006h')).toBe('');
+    expect(stripMouseTrackingSequences('\x1b[?1005h')).toBe('');
+    expect(stripMouseTrackingSequences('\x1b[?1015h')).toBe('');
+    expect(stripMouseTrackingSequences('\x1b[?1016h')).toBe('');
   });
 
   it('is a no-op for chunks without private-mode sequences', () => {

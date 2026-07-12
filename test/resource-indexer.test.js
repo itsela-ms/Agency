@@ -184,7 +184,7 @@ describe('ResourceIndexer related resource detection', () => {
     await indexer.rebuildIfStale();
 
     const entry = indexer.cache['cached-session'];
-    expect(entry.version).toBe(4);
+    expect(entry.version).toBe(5);
     expect(entry.resources).toEqual([
       {
         id: '42',
@@ -229,6 +229,43 @@ describe('ResourceIndexer related resource detection', () => {
     await indexer.rebuildIfStale();
 
     expect(byType(indexer.cache['active-session'].resources, 'pr').map(resource => resource.id)).toEqual(['10', '11']);
+  });
+
+  it('adds queried work item titles to visible work item resources', async () => {
+    const sessionDir = await createSession('work-item-title', [
+      {
+        type: 'assistant.message',
+        data: {
+          content: 'Work item: https://dev.azure.com/microsoft/OS/_workitems/edit/456'
+        }
+      },
+      {
+        type: 'tool.execution_complete',
+        data: {
+          result: {
+            content: JSON.stringify({
+              id: 456,
+              fields: {
+                'System.WorkItemType': 'Bug',
+                'System.Title': 'Investigate terminal scrolling regression when mouse tracking is enabled'
+              }
+            })
+          }
+        }
+      }
+    ]);
+
+    const resources = await indexer._extractResources(sessionDir);
+
+    expect(byType(resources, 'workitem')).toEqual([
+      {
+        id: '456',
+        url: 'https://dev.azure.com/microsoft/OS/_workitems/edit/456',
+        type: 'workitem',
+        workItemType: 'Bug',
+        title: 'Investigate terminal scrolling regression when mouse tracking is enabled'
+      }
+    ]);
   });
 
   it('clears auto resources when events.jsonl is removed while preserving manual resources', async () => {

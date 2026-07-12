@@ -26,6 +26,7 @@ const terminals = new Map();
 const sessionBusyState = new Map(); // sessionId → boolean (has recent pty output)
 const sessionBusyTimers = new Map(); // sessionId → debounce timeout id (Working → Waiting)
 const sessionAliveState = new Set(); // sessionIds with live pty processes
+const pendingSessionStarts = new Map(); // temporary ids shown while slow launchers create the real session
 const openTabIds = new Set(); // sessionIds currently shown in the tab strip
 let activeSessionId = null;
 let allSessions = [];
@@ -65,6 +66,7 @@ let statusDiffHideTimer = null;
 let historyShowsAll = false;
 let startupInstallInProgress = false;
 let startupInstallRecoveryPromise = null;
+let nextPendingSessionStartId = 1;
 
 const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 450;
@@ -74,6 +76,9 @@ const SIDEBAR_COLLAPSED_WIDTH = 68;
 let tabGroups = []; // Array of { id, name, color, collapsed, tabIds }
 let sessionOrder = []; // Manual ordering of active session IDs in sidebar
 const ABOUT_CHANGELOG_URL = 'https://github.com/itsela-ms/DeepSky/blob/main/CHANGELOG.md';
+const CONTACT_EMAIL = 'itsela@microsoft.com';
+const CONTACT_EMAIL_URL = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(CONTACT_EMAIL)}&subject=${encodeURIComponent('DeepSky feedback')}`;
+const CONTACT_TEAMS_URL = `https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(CONTACT_EMAIL)}`;
 const ABOUT_CHANGELOG_RELEASE_LIMIT = 3;
 const GROUP_COLORS = [
   { name: 'Grey', value: '#585b70' },
@@ -90,7 +95,12 @@ let nextGroupColorIdx = 0;
 function saveTabState() {
   const openTabs = [...openTabIds];
   const activeSessions = [...sessionAliveState];
-  window.api.updateSettings({ openTabs, activeSessions, activeTab: activeSessionId, tabGroups, sessionOrder });
+  const persistedSessionOrder = sessionOrder.filter(id => !pendingSessionStarts.has(id));
+  window.api.updateSettings({ openTabs, activeSessions, activeTab: activeSessionId, tabGroups, sessionOrder: persistedSessionOrder });
+}
+
+function getActiveSidebarIds() {
+  return new Set([...sessionAliveState, ...pendingSessionStarts.keys()]);
 }
 
 function isSessionListRenderLocked() {
@@ -116,6 +126,47 @@ const XTERM_THEMES = {
     brightBlue: '#1e66f5', brightMagenta: '#ea76cb', brightCyan: '#179299', brightWhite: '#bcc0cc'
   }
 };
+
+const MOUSE_REPORT_MODES = new Set(['1000', '1001', '1002', '1003']);
+const SGR_MOUSE_MODE = '1006';
+
+function updateTerminalMouseTracking(entry, data) {
+  if (!entry || typeof data !== 'string' || data.indexOf('\x1b[?') === -1) return;
+  data.replace(/\x1b\[\?([0-9;]+)([hl])/g, (match, params, suffix) => {
+    const modes = params.split(';').filter(Boolean);
+    if (modes.some(mode => MOUSE_REPORT_MODES.has(mode))) {
+      entry.mouseTrackingEnabled = suffix === 'h';
+    }
+    if (modes.includes(SGR_MOUSE_MODE)) {
+      entry.sgrMouseEnabled = suffix === 'h';
+    }
+    return match;
+  });
+}
+
+function getTerminalCellFromMouse(entry, event) {
+  const screen = entry?.wrapper?.querySelector('.xterm-screen') || entry?.wrapper;
+  const terminal = entry?.terminal;
+  if (!screen || !terminal?.cols || !terminal?.rows) return null;
+  const rect = screen.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  const col = Math.max(1, Math.min(terminal.cols, Math.floor(((event.clientX - rect.left) / rect.width) * terminal.cols) + 1));
+  const row = Math.max(1, Math.min(terminal.rows, Math.floor(((event.clientY - rect.top) / rect.height) * terminal.rows) + 1));
+  return { col, row };
+}
+
+function forwardTrackedMouseWheel(sessionId, entry, event) {
+  if (!entry?.mouseTrackingEnabled || !entry?.sgrMouseEnabled) return false;
+  if (event.ctrlKey || event.metaKey) return false;
+  if (!event.deltaY) return false;
+  const cell = getTerminalCellFromMouse(entry, event);
+  if (!cell) return false;
+  const button = event.deltaY < 0 ? 64 : 65;
+  event.preventDefault();
+  event.stopPropagation();
+  window.api.writePty(sessionId, `\x1b[<${button};${cell.col};${cell.row}M`);
+  return true;
+}
 
 // DOM elements
 const sessionList = document.getElementById('session-list');
@@ -175,6 +226,8 @@ const aboutReleaseMetaEl = document.getElementById('about-release-meta');
 const aboutChangelogEl = document.getElementById('about-changelog');
 const aboutOpenBrochureBtn = document.getElementById('about-open-brochure');
 const aboutOpenChangelogBtn = document.getElementById('about-open-changelog');
+const aboutContactEmailBtn = document.getElementById('about-contact-email');
+const aboutContactTeamsBtn = document.getElementById('about-contact-teams');
 const feedbackPanel = document.getElementById('feedback-panel');
 const toastContainer = document.getElementById('toast-container');
 const notificationLiveRegion = document.getElementById('notification-live-region');
@@ -728,6 +781,44 @@ function ensureSessionPlaceholder(sessionId, fallback = {}) {
   return session;
 }
 
+function createPendingSessionStart({ launcher = 'copilot', cwd = '' } = {}) {
+  const id = `pending-new-session-${Date.now()}-${nextPendingSessionStartId++}`;
+  const launcherLabel = launcher === 'agency' ? 'Agency' : 'Copilot';
+  const session = {
+    id,
+    title: `Starting ${launcherLabel} session...`,
+    cwd: cwd || '',
+    updatedAt: new Date().toISOString(),
+    tags: [],
+    resources: [],
+  };
+  pendingSessionStarts.set(id, session);
+  allSessions.unshift(session);
+  return id;
+}
+
+function removePendingSessionStart(id) {
+  if (!id) return;
+  pendingSessionStarts.delete(id);
+  allSessions = allSessions.filter(session => session.id !== id);
+  sessionOrder = sessionOrder.filter(sessionId => sessionId !== id);
+}
+
+function mergePendingSessionStarts() {
+  for (const [id, session] of pendingSessionStarts) {
+    if (!allSessions.some(existing => existing.id === id)) {
+      allSessions.unshift(session);
+    }
+  }
+}
+
+function showActiveSidebar() {
+  currentSidebarTab = 'active';
+  document.querySelectorAll('.sidebar-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.tab === 'active')
+  );
+}
+
 function appendHistoryScopeNotice() {
   if (currentSidebarTab !== 'history' || sidebarCollapsed) return;
   const noticeEl = document.createElement('div');
@@ -866,7 +957,7 @@ sessionList.addEventListener('click', (e) => {
   if (cwdEl) {
     e.stopPropagation();
     const sid = cwdEl.dataset.sessionId;
-    if (sid) handleCwdClick(sid);
+    if (sid && !pendingSessionStarts.has(sid)) handleCwdClick(sid);
     return;
   }
   // Tag overflow click → expand hidden tags
@@ -884,6 +975,7 @@ sessionList.addEventListener('click', (e) => {
     const item = titleEl.closest('.session-item');
     const sid = item?.dataset.sessionId;
     if (!sid) return;
+    if (pendingSessionStarts.has(sid)) return;
     if (_titleClickTimeout && _titleClickSessionId === sid) {
       clearTimeout(_titleClickTimeout);
       _titleClickTimeout = null;
@@ -897,7 +989,7 @@ sessionList.addEventListener('click', (e) => {
     return;
   }
   const item = e.target.closest('.session-item');
-  if (item) openSession(item.dataset.sessionId);
+  if (item && !pendingSessionStarts.has(item.dataset.sessionId)) openSession(item.dataset.sessionId);
 });
 sessionList.addEventListener('dblclick', (e) => {
   const titleEl = e.target.closest('.session-title');
@@ -905,7 +997,7 @@ sessionList.addEventListener('dblclick', (e) => {
   e.stopPropagation();
   if (_titleClickTimeout) { clearTimeout(_titleClickTimeout); _titleClickTimeout = null; _titleClickSessionId = null; }
   const item = titleEl.closest('.session-item');
-  if (item) startRenameSession(item.dataset.sessionId, titleEl);
+  if (item && !pendingSessionStarts.has(item.dataset.sessionId)) startRenameSession(item.dataset.sessionId, titleEl);
 });
 sessionList.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === ' ') {
@@ -914,13 +1006,13 @@ sessionList.addEventListener('keydown', (e) => {
       e.preventDefault();
       e.stopPropagation();
       const sid = cwdEl.dataset.sessionId;
-      if (sid) handleCwdClick(sid);
+      if (sid && !pendingSessionStarts.has(sid)) handleCwdClick(sid);
       return;
     }
   }
   if (e.key !== 'Enter') return;
   const item = e.target.closest('.session-item');
-  if (item) openSession(item.dataset.sessionId);
+  if (item && !pendingSessionStarts.has(item.dataset.sessionId)) openSession(item.dataset.sessionId);
 });
 
 // Initialize
@@ -958,6 +1050,7 @@ async function init() {
   ipcCleanups.push(window.api.onPtyData((sessionId, data) => {
     const entry = terminals.get(sessionId);
     if (entry) {
+      updateTerminalMouseTracking(entry, data);
       // Strip the CLI's mouse-reporting mode-set sequences so xterm keeps
       // ownership of the mouse and plain-drag text selection / copy work.
       entry.terminal.write(stripMouseTrackingSequences(data), () => {
@@ -1414,13 +1507,21 @@ aboutOpenChangelogBtn?.addEventListener('click', () => {
   window.api.openExternal(ABOUT_CHANGELOG_URL);
 });
 
+aboutContactEmailBtn?.addEventListener('click', () => {
+  window.api.openExternal(CONTACT_EMAIL_URL);
+});
+
+aboutContactTeamsBtn?.addEventListener('click', () => {
+  window.api.openExternal(CONTACT_TEAMS_URL);
+});
+
 aboutOpenBrochureBtn?.addEventListener('click', async () => {
   const result = await window.api.openBrochure();
   if (!result?.ok) {
     showToast({
       type: 'error',
       title: 'Could not open brochure',
-      body: result?.error || 'DeepSky brochure was not found on this machine.',
+      body: result?.error || 'Could not open the local or online DeepSky brochure.',
     });
   }
 });
@@ -1557,10 +1658,10 @@ async function populateAboutSection() {
   if (aboutVersionEl) aboutVersionEl.textContent = `v${version}`;
   if (aboutVersionTabEl) aboutVersionTabEl.textContent = `DeepSky v${version}`;
   if (aboutOpenBrochureBtn) {
-    aboutOpenBrochureBtn.disabled = !brochureAvailability?.available;
-    aboutOpenBrochureBtn.title = brochureAvailability?.available
-      ? 'Open the DeepSky brochure'
-      : 'DeepSky brochure was not found on this machine.';
+    aboutOpenBrochureBtn.disabled = false;
+    aboutOpenBrochureBtn.title = brochureAvailability?.localAvailable
+      ? 'Open the local DeepSky brochure'
+      : 'Local brochure not found; opens the online DeepSky brochure instead';
   }
   renderAboutChangelog(changelog, version);
 
@@ -1741,7 +1842,8 @@ function showStatusDiffPopover(anchorEl, diffText) {
 
 async function refreshSessionList() {
   allSessions = await window.api.listSessions({ scope: getSidebarSessionScope() });
-  const validIds = new Set([...allSessions.map(s => s.id), ...terminals.keys()]);
+  mergePendingSessionStarts();
+  const validIds = new Set([...allSessions.map(s => s.id), ...terminals.keys(), ...pendingSessionStarts.keys()]);
   for (const session of allSessions) {
     if (terminals.has(session.id)) {
       updateTabTitle(session.id, session.title);
@@ -2062,12 +2164,14 @@ function patchSessionStateBadges() {
     const isRunning = sessionAliveState.has(sessionId);
     const isBusy = sessionBusyState.get(sessionId) || false;
     const hasPR = session.lastAssistantHasPR === true;
+    const isStarting = pendingSessionStarts.has(sessionId);
     const { label, cls, tip } = deriveSessionState({
       isRunning,
       isActive: sessionId === activeSessionId,
       hasPR,
       isHistory: currentSidebarTab === 'history',
-      isBusy
+      isBusy,
+      isStarting
     });
 
     // Keep the .running class in sync with sessionAliveState so the side
@@ -2207,6 +2311,11 @@ function createSessionItem(session, group, index) {
   el.className = 'session-item';
   el.dataset.sessionId = session.id;
   if (currentSidebarTab === 'active') el.classList.add('active-list-item');
+  const isStarting = pendingSessionStarts.has(session.id);
+  if (isStarting) {
+    el.classList.add('starting');
+    el.setAttribute('aria-disabled', 'true');
+  }
   if (session.id === activeSessionId) el.classList.add('active');
   if (sessionAliveState.has(session.id)) {
     el.classList.add('running');
@@ -2232,7 +2341,7 @@ function createSessionItem(session, group, index) {
     const prs = session.resources.filter(r => r.type === 'pr');
     const wis = session.resources.filter(r => r.type === 'workitem');
     if (prs.length > 0) allPills.push(`<span class="tag tag-pr" title="${escapeHtml(prs.map(p => 'PR ' + p.id + (p.repo ? ' (' + p.repo + ')' : '') + (p.state ? ' [' + p.state + ']' : '')).join('\n'))}">PR ${prs.map(p => p.id).join(', ')}</span>`);
-    if (wis.length > 0) allPills.push(`<span class="tag tag-wi" title="${escapeHtml(wis.map(w => 'WI ' + w.id).join('\n'))}">WI ${wis.map(w => w.id).join(', ')}</span>`);
+    if (wis.length > 0) allPills.push(`<span class="tag tag-wi" title="${escapeHtml(wis.map(w => 'WI ' + w.id + (w.workItemType ? ' [' + w.workItemType + ']' : '') + (w.title || w.name ? ' - ' + (w.title || w.name) : '')).join('\n'))}">WI ${wis.map(w => w.id).join(', ')}</span>`);
   }
   if (session.tags && session.tags.length > 0) {
     const repos = session.tags.filter(t => t.startsWith('repo:'));
@@ -2260,14 +2369,15 @@ function createSessionItem(session, group, index) {
     isActive: session.id === activeSessionId,
     hasPR,
     isHistory: currentSidebarTab === 'history',
-    isBusy: sessionBusyState.get(session.id) || false
+    isBusy: sessionBusyState.get(session.id) || false,
+    isStarting
   });
 
   // Folder picker as a positioned icon button at the bottom-right of the
   // session card (replaces the old "📂 <truncated path>" meta line). The
   // full path is exposed via the tooltip on hover.
   let cwdHtml = '';
-  if (session.cwd) {
+  if (session.cwd && !isStarting) {
     cwdHtml = `<button class="session-cwd" type="button" tabindex="0" data-session-id="${session.id}" title="${escapeHtml(session.cwd)}" aria-label="Change working directory: ${escapeHtml(session.cwd)}"><svg class="session-cwd-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-8l-2-2H5a2 2 0 0 0-2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button>`;
   }
 
@@ -2281,7 +2391,7 @@ function createSessionItem(session, group, index) {
     ${tagsHtml}
     ${cwdHtml}
     ${currentSidebarTab === 'history' ? '<button class="session-delete" title="Delete session">✕</button>' : ''}
-    ${currentSidebarTab === 'active' && isRunning ? '<button class="session-close" tabindex="-1" title="Close session">✕</button>' : ''}
+    ${currentSidebarTab === 'active' && isRunning && !isStarting ? '<button class="session-close" tabindex="-1" title="Close session">✕</button>' : ''}
   `;
 
   el.setAttribute('tabindex', '0');
@@ -2289,7 +2399,7 @@ function createSessionItem(session, group, index) {
   el.title = session.title;
 
   // Drag-and-drop + context menu for active sessions
-  if (currentSidebarTab === 'active') {
+  if (currentSidebarTab === 'active' && !isStarting) {
     el.setAttribute('draggable', 'true');
     el.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('application/x-session-id', session.id);
@@ -2342,7 +2452,7 @@ function renderSessionList() {
   }
   pendingSessionListRender = false;
   const renderSeq = ++sessionListRenderSeq;
-  const activeIds = new Set(sessionAliveState);
+  const activeIds = getActiveSidebarIds();
 
   let displayed;
   if (currentSidebarTab === 'active') {
@@ -2631,6 +2741,7 @@ function startRenameSession(sessionId, titleEl) {
 const cwdPickerActive = new Set();
 
 async function handleCwdClick(sessionId) {
+  if (pendingSessionStarts.has(sessionId)) return;
   if (cwdPickerActive.has(sessionId)) return;
   cwdPickerActive.add(sessionId);
 
@@ -2767,11 +2878,18 @@ async function openSession(sessionId) {
 
 async function newSession(launchOverrides = null) {
   if (creatingSession) return;
+  let pendingStartId = null;
+  const overrides = launchOverrides && typeof launchOverrides === 'object' &&
+    (launchOverrides.launcher === 'copilot' ||
+      launchOverrides.launcher === 'agency' ||
+      Object.prototype.hasOwnProperty.call(launchOverrides, 'launcherArgs'))
+    ? launchOverrides
+    : null;
 
   const settings = await window.api.getSettings();
   applySettingsToControls(settings);
 
-  const oneOffLauncher = launchOverrides?.launcher;
+  const oneOffLauncher = overrides?.launcher;
   const availability = oneOffLauncher
     ? getOneOffLauncherAvailability(settings, oneOffLauncher)
     : getNewSessionAvailability(settings);
@@ -2793,9 +2911,14 @@ async function newSession(launchOverrides = null) {
       cwd = settings.defaultWorkdir;
     }
 
-    const request = launchOverrides
-      ? { cwd, launcher: launchOverrides.launcher, launcherArgs: launchOverrides.launcherArgs || '' }
+    const request = overrides
+      ? { cwd, launcher: overrides.launcher, launcherArgs: overrides.launcherArgs || '' }
       : cwd;
+
+    pendingStartId = createPendingSessionStart({ launcher: availability.launcher, cwd });
+    showActiveSidebar();
+    renderSessionList();
+
     const result = await window.api.newSession(request);
     // session:new now returns { sessionId, bufferedData } so we can write the
     // pre-warm CLI output AFTER createTerminal, avoiding the race where a
@@ -2805,11 +2928,14 @@ async function newSession(launchOverrides = null) {
     const sessionId = typeof result === 'string' ? result : result?.sessionId;
     const bufferedData = typeof result === 'string' ? '' : (result?.bufferedData || '');
     if (!sessionId) throw new Error('Failed to start session.');
+    removePendingSessionStart(pendingStartId);
+    pendingStartId = null;
     sessionAliveState.add(sessionId);
     createTerminal(sessionId);
     if (bufferedData) {
       const termEntry = terminals.get(sessionId);
       if (termEntry) {
+        updateTerminalMouseTracking(termEntry, bufferedData);
         termEntry.terminal.write(stripMouseTrackingSequences(bufferedData), () => {
           scheduleTerminalViewportSync(sessionId, { refreshSearch: true });
         });
@@ -2821,8 +2947,7 @@ async function newSession(launchOverrides = null) {
     // Inject placeholder so the active list renders immediately
     ensureSessionPlaceholder(sessionId, { title: 'New Session', cwd: cwd || '' });
 
-    currentSidebarTab = 'active';
-    document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'active'));
+    showActiveSidebar();
     renderSessionList();
 
     // Retry refresh to pick up real metadata once the CLI writes it
@@ -2843,6 +2968,8 @@ async function newSession(launchOverrides = null) {
     if (termEntry) termEntry.titlePoll = titlePoll;
     saveTabState();
   } catch (err) {
+    removePendingSessionStart(pendingStartId);
+    renderSessionList();
     showToast({ type: 'error', title: 'Could not start new session', body: String(err?.message || err) });
   } finally {
     creatingSession = false;
@@ -2896,6 +3023,10 @@ function createTerminal(sessionId) {
     if (!currentEntry || currentEntry.isSyncingViewport) return;
     scheduleTerminalViewportSync(sessionId);
   });
+  terminal.attachCustomWheelEventHandler((event) => {
+    const currentEntry = terminals.get(sessionId);
+    return !forwardTrackedMouseWheel(sessionId, currentEntry, event);
+  });
 
   // Copy-on-select: mirror xterm's selection to the clipboard, matching
   // PuTTY/Windows Terminal behavior. Because we strip the CLI's mouse-reporting
@@ -2921,7 +3052,6 @@ function createTerminal(sessionId) {
     // for this mouseup before we read it.
     setTimeout(copySelectionToClipboard, 0);
   });
-
   // Defense-in-depth: own browser-level paste events too. Electron/Chromium can
   // deliver Ctrl+V as a paste event instead of the xterm keydown path; suppress
   // xterm's native handler, then write the clipboard text through the same PTY
@@ -2955,7 +3085,9 @@ function createTerminal(sessionId) {
     fitAddon,
     wrapper,
     isSyncingViewport: false,
-    pendingViewportRefreshSearch: false
+    pendingViewportRefreshSearch: false,
+    mouseTrackingEnabled: false,
+    sgrMouseEnabled: false
   });
   scheduleTerminalViewportSync(sessionId);
   scheduleSessionPromptGhostRefresh(sessionId, [0, 400]);
@@ -3175,7 +3307,7 @@ function updateTabStatus(sessionId, alive) {
 
 function ensureSessionOrder() {
   // Build sessionOrder from current active sessions if it's empty or stale
-  const activeIds = new Set(sessionAliveState);
+  const activeIds = getActiveSidebarIds();
   // Add any active sessions not yet in sessionOrder
   for (const id of activeIds) {
     if (!sessionOrder.includes(id)) sessionOrder.push(id);
@@ -3729,7 +3861,9 @@ function renderResourceItems(resources) {
       const stateTag = r.state ? ` <span class="status-pr-state status-pr-${r.state}">${r.state}</span>` : '';
       label = `<span class="status-resource-id">${escapeHtml(r.id)}</span> ${r.repo ? escapeHtml(r.repo) : ''}${stateTag}`;
     } else if (r.type === 'workitem') {
-      label = `<span class="status-resource-id">${escapeHtml(r.id)}</span>`;
+      const title = r.title || r.name || '';
+      const typeBadge = r.workItemType ? ` <span class="status-resource-type">${escapeHtml(r.workItemType)}</span>` : '';
+      label = `<span class="status-resource-id">${escapeHtml(r.id)}</span>${typeBadge}${title ? ` <span class="status-resource-title">${escapeHtml(title)}</span>` : ''}`;
     } else if (r.type === 'pipeline') {
       const displayId = r.id.startsWith('def-') ? `Def ${r.id.slice(4)}` : `#${r.id}`;
       label = `<span class="status-resource-id">${escapeHtml(displayId)}</span>`;
@@ -3745,7 +3879,11 @@ function renderResourceItems(resources) {
     }
 
     const url = r.url || '#';
-    return `<div class="status-resource-item" data-url="${escapeHtml(url)}">
+    const resourceTitle = r.title || r.name;
+    const itemTitle = r.type === 'workitem'
+      ? `WI ${r.id}${r.workItemType ? ` [${r.workItemType}]` : ''}${resourceTitle ? ` - ${resourceTitle}` : ''}`
+      : (r.name || r.url || (r.id ? `${iconText} ${r.id}` : ''));
+    return `<div class="status-resource-item" data-url="${escapeHtml(url)}" title="${escapeHtml(itemTitle)}">
       <span class="status-resource-icon ${iconClass}">${escapeHtml(iconText)}</span>
       <span class="status-resource-details">${label}</span>
     </div>`;
@@ -4669,7 +4807,7 @@ function getDateLabel(dateStr) {
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
-  return div.innerHTML;
+  return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function shortenPath(p) {
@@ -4788,8 +4926,8 @@ sessionSearchInput.addEventListener('keydown', (e) => {
 sessionSearchPrev.addEventListener('click', () => stepSessionSearch(-1));
 sessionSearchNext.addEventListener('click', () => stepSessionSearch(1));
 sessionSearchClose.addEventListener('click', () => closeSessionSearch());
-btnNew.addEventListener('click', newSession);
-btnNewCenter.addEventListener('click', newSession);
+btnNew.addEventListener('click', () => newSession());
+btnNewCenter.addEventListener('click', () => newSession());
 
 maxConcurrentInput.addEventListener('change', (e) => {
   const val = parseInt(e.target.value, 10);

@@ -8,10 +8,12 @@
  * @param {boolean} opts.hasPR          - Session has an active PR
  * @param {boolean} opts.isHistory      - Currently viewing the history tab
  * @param {boolean} [opts.isBusy]       - Session produced pty output recently
+ * @param {boolean} [opts.isStarting]   - Session launch is in progress but no PTY/session id is available yet
  * @returns {{ label: string, cls: string }}
  */
-function deriveSessionState({ isRunning, isActive, hasPR, isHistory, isBusy }) {
+function deriveSessionState({ isRunning, isActive, hasPR, isHistory, isBusy, isStarting }) {
   if (hasPR)                return { label: 'Pending PR', cls: 'state-pending', tip: 'Has a PR linked — waiting for review' };
+  if (isStarting)           return { label: 'Starting', cls: 'state-starting', tip: 'Starting session' };
   if (isRunning && isBusy)  return { label: 'Working', cls: 'state-working', tip: 'AI is processing' };
   if (isRunning)            return { label: 'Waiting', cls: 'state-waiting', tip: 'Waiting on user response' };
   if (isHistory)            return { label: '\u2713 Done', cls: 'state-done', tip: 'Session completed' };

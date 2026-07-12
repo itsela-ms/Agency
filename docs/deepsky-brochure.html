@@ -1,0 +1,1399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepSky ✦ — Your Command Center for Copilot CLI</title>
+<style>
+  :root {
+    --base: #1e1e2e; --mantle: #181825; --crust: #11111b;
+    --surface0: #313244; --surface1: #45475a; --surface2: #585b70;
+    --text: #cdd6f4; --subtext0: #a6adc8; --subtext1: #bac2de;
+    --blue: #89b4fa; --green: #a6e3a1; --mauve: #cba6f7;
+    --peach: #fab387; --teal: #94e2d5; --yellow: #f9e2af;
+    --red: #f38ba8; --pink: #f5c2e7; --lavender: #b4befe;
+    --sky: #89dceb;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--crust);
+    color: var(--text);
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* Hero */
+  .hero {
+    padding: 5rem 2rem 3rem;
+    text-align: center;
+    background: radial-gradient(ellipse at 50% 30%, rgba(137,180,250,0.08) 0%, transparent 60%),
+                radial-gradient(ellipse at 80% 70%, rgba(203,166,247,0.06) 0%, transparent 50%),
+                var(--crust);
+  }
+
+  .logo {
+    font-size: 4.5rem; font-weight: 800;
+    background: linear-gradient(135deg, var(--blue), var(--mauve), var(--pink));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 0.5rem; letter-spacing: -2px;
+  }
+
+  .logo-star {
+    -webkit-text-fill-color: var(--yellow);
+    animation: twinkle 3s ease-in-out infinite;
+  }
+
+  @keyframes twinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .tagline { font-size: 1.3rem; color: var(--subtext0); margin-bottom: 1rem; }
+  .tagline em { color: var(--blue); font-style: normal; font-weight: 600; }
+
+  .hero-desc {
+    color: var(--subtext0); margin-bottom: 2rem;
+    max-width: 520px; margin-left: auto; margin-right: auto; font-size: 0.95rem;
+  }
+
+  .cta-row { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    padding: 0.8rem 1.8rem; border-radius: 12px;
+    font-size: 0.95rem; font-weight: 600;
+    text-decoration: none; cursor: pointer;
+    transition: all 0.2s ease; border: none;
+  }
+  .btn-primary { background: linear-gradient(135deg, var(--blue), var(--mauve)); color: var(--crust); }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(137,180,250,0.3); }
+  .btn-secondary { background: var(--surface0); color: var(--text); border: 1px solid var(--surface1); }
+  .btn-secondary:hover { background: var(--surface1); transform: translateY(-2px); }
+
+  .prereq {
+    background: var(--mantle); border: 1px solid var(--surface0);
+    border-left: 3px solid var(--yellow); border-radius: 8px;
+    padding: 0.8rem 1.2rem; max-width: 500px; margin: 1.5rem auto 0;
+    font-size: 0.85rem; color: var(--subtext0); text-align: center;
+  }
+  .prereq code { background: var(--surface0); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.82rem; color: var(--peach); }
+
+  /* Sections */
+  section { max-width: 1000px; margin: 0 auto; padding: 4rem 2rem; }
+
+  .section-title {
+    font-size: 1.8rem; font-weight: 700;
+    text-align: center; margin-bottom: 1.5rem; letter-spacing: -0.5px;
+  }
+
+  /* Simple feature list */
+  .feature-list {
+    list-style: none; max-width: 600px; margin: 0 auto;
+  }
+
+  .feature-list li {
+    padding: 0.6rem 0;
+    color: var(--subtext1); font-size: 0.95rem;
+    border-bottom: 1px solid rgba(49,50,68,0.4);
+    display: flex; align-items: center; gap: 0.75rem;
+  }
+
+  .feature-list li:last-child { border-bottom: none; }
+
+  .feature-list .fl-icon { font-size: 1.1rem; flex-shrink: 0; width: 24px; text-align: center; }
+
+  /* ===================== INTERACTIVE MOCK ===================== */
+  .mock-section { padding: 4rem 2rem 5rem; }
+
+  .mock-label {
+    text-align: center; color: var(--subtext0); font-size: 0.85rem;
+    margin-bottom: 0.75rem; letter-spacing: 0.5px; text-transform: uppercase; font-weight: 500;
+  }
+
+  .mock-window {
+    max-width: 900px; margin: 0 auto;
+    border-radius: 12px; overflow: hidden;
+    border: 1px solid var(--surface0);
+    box-shadow: 0 20px 80px rgba(0,0,0,0.5);
+    background: var(--base);
+  }
+
+  /* Title bar */
+  .mock-titlebar {
+    background: var(--mantle);
+    display: flex; align-items: center;
+    padding: 0 12px; height: 36px;
+    border-bottom: 1px solid var(--surface0);
+    gap: 8px; user-select: none;
+  }
+
+  .mock-dots { display: flex; gap: 6px; }
+  .mock-dots span { width: 12px; height: 12px; border-radius: 50%; }
+  .mock-dots .d-red { background: var(--red); }
+  .mock-dots .d-yellow { background: var(--yellow); }
+  .mock-dots .d-green { background: var(--green); }
+
+  .mock-titlebar-text {
+    flex: 1; text-align: center;
+    font-size: 0.75rem; color: var(--surface2); font-weight: 500;
+  }
+
+  .mock-toolbar-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 24px; height: 24px; padding: 0 7px;
+    border-radius: 6px; border: 1px solid transparent;
+    color: var(--subtext0); font-size: 0.78rem; cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .mock-toolbar-btn:hover,
+  .mock-toolbar-btn.active {
+    color: var(--text);
+    background: rgba(137,180,250,0.1);
+    border-color: rgba(137,180,250,0.18);
+  }
+
+  .mock-bell {
+    position: relative; cursor: pointer; font-size: 0.9rem;
+    color: var(--subtext0); transition: color 0.2s;
+  }
+  .mock-bell:hover { color: var(--text); }
+  .mock-bell-badge {
+    position: absolute; top: -5px; right: -7px;
+    background: var(--red); color: var(--crust);
+    font-size: 0.55rem; font-weight: 700;
+    width: 14px; height: 14px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.3s;
+  }
+  .mock-bell-badge.visible { opacity: 1; }
+
+  .mock-notif-dropdown {
+    position: absolute; top: calc(100% + 8px); right: -8px;
+    background: var(--surface0); border: 1px solid var(--surface1);
+    border-radius: 6px; width: 210px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    opacity: 0; pointer-events: none; transform: translateY(-4px);
+    transition: opacity 0.15s, transform 0.15s; z-index: 20;
+  }
+  .mock-notif-dropdown.open { opacity: 1; pointer-events: auto; transform: translateY(0); }
+  .mock-notif-header { padding: 7px 10px; font-size: 0.62rem; font-weight: 700; color: var(--subtext0); border-bottom: 1px solid var(--surface1); letter-spacing: 0.04em; text-transform: uppercase; }
+  .mock-notif-item { padding: 7px 10px; font-size: 0.65rem; color: var(--text); border-bottom: 1px solid var(--surface0); }
+  .mock-notif-item:last-child { border-bottom: none; }
+  .mock-notif-item .ni-title { font-weight: 600; }
+  .mock-notif-item .ni-body { color: var(--subtext0); font-size: 0.6rem; margin-top: 2px; }
+
+  .mock-tab-status {
+    margin-left: auto; padding: 0 11px; font-size: 0.82rem;
+    cursor: pointer; color: var(--surface2); display: flex; align-items: center;
+    transition: color 0.15s; border-left: 1px solid var(--surface0); flex-shrink: 0;
+  }
+  .mock-tab-status:hover { color: var(--subtext0); }
+  .mock-tab-status.active { color: var(--blue); }
+
+  /* Main layout */
+  .mock-body { display: flex; height: 420px; }
+
+  /* Sidebar */
+  .mock-sidebar {
+    width: 220px; background: var(--mantle);
+    border-right: 1px solid var(--surface0);
+    display: flex; flex-direction: column;
+    flex-shrink: 0; overflow: hidden;
+  }
+
+  .mock-sidebar-tabs {
+    display: flex; border-bottom: 1px solid var(--surface0);
+  }
+  .mock-sidebar-tab {
+    flex: 1; text-align: center; padding: 8px 0;
+    font-size: 0.7rem; font-weight: 600; color: var(--surface2);
+    cursor: pointer; transition: all 0.2s;
+    border-bottom: 2px solid transparent;
+  }
+  .mock-sidebar-tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+  .mock-sidebar-tab:hover { color: var(--subtext0); }
+
+  .mock-search {
+    margin: 8px; padding: 5px 8px;
+    background: var(--surface0); border: 1px solid transparent;
+    border-radius: 6px; color: var(--text); font-size: 0.7rem;
+    font-family: inherit; outline: none;
+    transition: border-color 0.2s;
+  }
+  .mock-search:focus { border-color: var(--blue); }
+  .mock-search::placeholder { color: var(--surface2); }
+
+  .mock-session-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+
+  .mock-session {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 30px 7px 10px; cursor: pointer;
+    transition: background 0.15s; position: relative;
+  }
+  .mock-session:hover { background: rgba(137,180,250,0.06); }
+  .mock-session.active { background: rgba(137,180,250,0.1); }
+
+  .mock-session-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot-green { background: var(--green); box-shadow: 0 0 6px rgba(166,227,161,0.5); }
+  .dot-yellow { background: var(--yellow); }
+  .dot-off { background: var(--surface1); }
+
+  .mock-session-info { flex: 1; min-width: 0; }
+  .mock-session-name { font-size: 0.72rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mock-session-meta { font-size: 0.6rem; color: var(--surface2); display: flex; align-items: center; gap: 4px; }
+
+  .mock-session-cwd {
+    position: absolute; right: 8px; bottom: 7px;
+    display: grid; place-items: center;
+    width: 18px; height: 18px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    color: var(--yellow);
+    background: none;
+    opacity: 0.92;
+  }
+  .mock-session-cwd svg { width: 12px; height: 12px; }
+
+  .mock-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 1px 6px; border-radius: 99px;
+    font-size: 0.55rem; font-weight: 700; letter-spacing: 0.3px;
+  }
+  .mb-working { background: rgba(166,227,161,0.15); color: var(--green); }
+  .mb-waiting { background: rgba(249,226,175,0.15); color: var(--yellow); }
+  .mb-idle { background: rgba(205,214,244,0.08); color: var(--surface2); }
+  .mb-pending { background: rgba(203,166,247,0.15); color: var(--mauve); }
+  .mb-done { background: rgba(148,226,213,0.15); color: var(--teal); }
+
+  .mock-resources {
+    display: flex; gap: 3px; margin-top: 2px;
+  }
+  .mock-res-pill {
+    font-size: 0.5rem; font-weight: 600;
+    padding: 1px 4px; border-radius: 4px;
+    background: rgba(137,180,250,0.1); color: var(--blue);
+  }
+
+  /* Tabs bar */
+  .mock-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  .mock-tabbar {
+    display: flex; background: var(--mantle);
+    border-bottom: 1px solid var(--surface0);
+    height: 32px; align-items: stretch;
+  }
+
+  .mock-tab {
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 14px; font-size: 0.7rem; font-weight: 500;
+    color: var(--surface2); cursor: pointer;
+    border-right: 1px solid var(--surface0);
+    transition: all 0.15s; white-space: nowrap;
+  }
+  .mock-tab.active { background: var(--base); color: var(--text); }
+  .mock-tab:hover { color: var(--subtext0); }
+  .mock-tab .tab-close { font-size: 0.6rem; opacity: 0; transition: opacity 0.15s; margin-left: 4px; }
+  .mock-tab:hover .tab-close { opacity: 0.6; }
+
+  /* Terminal */
+  .mock-terminal {
+    flex: 1; padding: 12px 14px;
+    font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
+    font-size: 0.72rem; line-height: 1.7;
+    color: var(--text); overflow: hidden;
+    position: relative;
+  }
+
+  .mock-terminal .line { white-space: pre-wrap; word-break: break-all; }
+  .t-prompt { color: var(--green); }
+  .t-copilot { color: var(--mauve); }
+  .t-dim { color: var(--surface2); }
+  .t-blue { color: var(--blue); }
+  .t-peach { color: var(--peach); }
+  .t-yellow { color: var(--yellow); }
+  .t-green { color: var(--green); }
+
+  .cursor-blink {
+    display: inline-block; width: 7px; height: 14px;
+    background: var(--text); vertical-align: text-bottom;
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+  /* Info bar */
+  .mock-info-bar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 12px;
+    background: var(--crust);
+    border-top: 1px solid var(--surface0);
+    font-size: 0.58rem; color: var(--surface2);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    flex-shrink: 0;
+  }
+  .mock-info-badge {
+    font-size: 0.5rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+    padding: 1px 5px; border-radius: 4px;
+    background: rgba(137,180,250,0.1); color: var(--blue);
+  }
+  .mock-info-title { color: var(--subtext0); font-weight: 600; }
+  .mock-info-divider { color: var(--surface0); }
+  .mock-info-prompt { color: var(--surface2); overflow: hidden; text-overflow: ellipsis; }
+
+  /* Resource sidebar */
+  .mock-res-panel {
+    width: 0; background: var(--mantle);
+    border-left: 1px solid var(--surface0);
+    overflow: hidden; transition: width 0.3s ease;
+    flex-shrink: 0;
+  }
+  .mock-res-panel.open { width: 180px; }
+
+  .mock-res-header {
+    padding: 10px; font-size: 0.72rem; font-weight: 700;
+    border-bottom: 1px solid var(--surface0);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .mock-res-close { cursor: pointer; color: var(--surface2); font-size: 0.8rem; }
+  .mock-res-close:hover { color: var(--text); }
+
+  .mock-status-body { overflow-y: auto; flex: 1; }
+  .mock-status-body::-webkit-scrollbar { width: 4px; }
+  .mock-status-body::-webkit-scrollbar-track { background: transparent; }
+  .mock-status-body::-webkit-scrollbar-thumb { background: var(--surface0); border-radius: 2px; }
+
+  .mock-status-intent {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 10px; font-size: 0.65rem; font-weight: 600; color: var(--green);
+    border-bottom: 1px solid var(--surface0);
+  }
+  .mock-intent-pulse {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 6px rgba(166,227,161,0.6);
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+  @keyframes pulse-glow { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .mock-status-section { border-bottom: 1px solid var(--surface0); }
+  .mock-status-section-header {
+    display: flex; align-items: center; gap: 5px;
+    padding: 7px 10px; font-size: 0.62rem; font-weight: 600; color: var(--subtext0);
+    cursor: pointer; user-select: none;
+  }
+  .mock-status-section-header:hover { background: rgba(137,180,250,0.04); }
+  .mock-section-title { flex: 1; }
+  .mock-section-badge {
+    font-size: 0.5rem; font-weight: 700; padding: 1px 5px; border-radius: 99px;
+    background: rgba(137,180,250,0.1); color: var(--blue);
+  }
+  .mock-section-chevron { font-size: 0.5rem; color: var(--surface2); transition: transform 0.2s; }
+  .mock-status-section:not(.open) .mock-section-chevron { transform: rotate(-90deg); }
+  .mock-status-section-content { padding: 2px 10px 8px; }
+  .mock-status-section:not(.open) .mock-status-section-content { display: none; }
+
+  .mock-summary-text { font-size: 0.6rem; color: var(--subtext0); line-height: 1.5; margin-bottom: 6px; }
+  .mock-summary-meta {
+    background: rgba(49,50,68,0.45);
+    border: 1px solid rgba(69,71,90,0.8);
+    border-radius: 8px;
+    padding: 7px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .mock-summary-label {
+    font-size: 0.46rem;
+    color: var(--surface2);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 3px;
+  }
+  .mock-summary-id-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .mock-summary-id-row code {
+    flex: 1;
+    min-width: 0;
+    font-family: 'Cascadia Code', monospace;
+    background: var(--surface0);
+    border: 1px solid var(--surface1);
+    padding: 3px 5px;
+    border-radius: 5px;
+    font-size: 0.52rem;
+    color: var(--text);
+  }
+  .mock-summary-id-copy,
+  .mock-summary-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border-radius: 6px;
+    border: 1px solid var(--surface1);
+    background: rgba(49,50,68,0.65);
+    color: var(--subtext0);
+    font-size: 0.5rem;
+    font-weight: 600;
+  }
+  .mock-summary-id-copy {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    flex: 0 0 auto;
+  }
+  .mock-summary-actions {
+    display: flex;
+    gap: 5px;
+    flex-wrap: nowrap;
+  }
+  .mock-summary-action {
+    padding: 4px 6px;
+    white-space: nowrap;
+  }
+  .mock-summary-action span:first-child {
+    font-size: 0.56rem;
+  }
+
+  .mock-instructions-peek {
+    position: absolute;
+    top: 14px;
+    right: 18px;
+    width: 150px;
+    padding: 8px;
+    border-radius: 8px;
+    background: rgba(24,24,37,0.94);
+    border: 1px solid rgba(69,71,90,0.9);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    z-index: 2;
+  }
+  .mock-instructions-title {
+    font-size: 0.54rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .mock-instructions-copy {
+    font-size: 0.52rem;
+    color: var(--subtext0);
+    line-height: 1.45;
+    margin-bottom: 7px;
+  }
+  .mock-instructions-actions {
+    display: flex;
+    gap: 5px;
+  }
+  .mock-instructions-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 4px 7px;
+    border-radius: 6px;
+    border: 1px solid var(--surface1);
+    background: rgba(49,50,68,0.7);
+    color: var(--subtext0);
+    font-size: 0.5rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .mock-instructions-btn.primary {
+    background: rgba(203,166,247,0.16);
+    color: var(--mauve);
+    border-color: rgba(203,166,247,0.24);
+  }
+
+  .mock-step {
+    display: flex; align-items: center; gap: 6px;
+    padding: 3px 0; font-size: 0.6rem; color: var(--surface2);
+  }
+  .mock-step-num {
+    width: 16px; height: 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 0.48rem; font-weight: 700; flex-shrink: 0;
+    background: var(--surface0); color: var(--surface2);
+  }
+  .mock-step.done { color: var(--surface2); opacity: 0.6; }
+  .mock-step.done .mock-step-num { background: rgba(166,227,161,0.15); color: var(--green); }
+  .mock-step.current { color: var(--text); font-weight: 600; }
+  .mock-step.current .mock-step-num { background: rgba(137,180,250,0.2); color: var(--blue); }
+
+  .mock-res-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 10px; font-size: 0.68rem; color: var(--subtext0);
+    border-bottom: 1px solid rgba(49,50,68,0.3);
+    cursor: pointer; transition: background 0.15s;
+  }
+  .mock-res-item:hover { background: rgba(137,180,250,0.06); }
+  .mock-res-item .ri-label {
+    padding: 1px 5px; border-radius: 4px;
+    font-size: 0.55rem; font-weight: 700;
+  }
+  .ri-pr { background: rgba(166,227,161,0.15); color: var(--green); }
+  .ri-repo { background: rgba(137,180,250,0.15); color: var(--blue); }
+  .ri-wi { background: rgba(203,166,247,0.15); color: var(--mauve); }
+
+  /* Toast notification */
+  .mock-toast {
+    position: absolute; bottom: 12px; right: 12px;
+    background: var(--mantle); border: 1px solid var(--surface0);
+    border-radius: 10px; padding: 10px 14px;
+    font-size: 0.7rem; color: var(--text);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    opacity: 0; transform: translateY(10px);
+    transition: all 0.4s ease; pointer-events: none;
+    max-width: 220px; z-index: 10;
+  }
+  .mock-toast.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  .mock-toast-title { font-weight: 700; margin-bottom: 2px; }
+  .mock-toast-body { color: var(--subtext0); font-size: 0.65rem; }
+
+  /* How it works */
+  .steps { display: flex; gap: 2rem; justify-content: center; flex-wrap: wrap; margin-top: 1.5rem; }
+  .step { flex: 1; min-width: 200px; max-width: 280px; text-align: center; }
+  .step-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 44px; height: 44px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--blue), var(--mauve));
+    color: var(--crust); font-weight: 800; font-size: 1.1rem;
+    margin-bottom: 0.75rem;
+  }
+  .step h4 { font-size: 1rem; margin-bottom: 0.3rem; }
+  .step p { color: var(--subtext0); font-size: 0.88rem; }
+
+  /* Footer */
+  footer {
+    text-align: center; padding: 2.5rem 2rem;
+    color: var(--surface2); font-size: 0.82rem;
+    border-top: 1px solid var(--surface0);
+  }
+  footer a { color: var(--blue); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  @media (max-width: 700px) {
+    .logo { font-size: 3rem; }
+    .mock-sidebar { width: 160px; }
+    .mock-body { height: 350px; }
+    .mock-res-panel.open { width: 140px; }
+    .steps { flex-direction: column; align-items: center; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: 0.001ms !important;
+    }
+
+    .cursor-blink {
+      opacity: 1;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="logo">DeepSky <span class="logo-star">✦</span></div>
+  <p class="tagline">Your command center for <em>GitHub Copilot CLI</em></p>
+  <p class="hero-desc">
+    A desktop app that wraps the Copilot CLI experience with session management, live status tracking, notifications, and a proper multi-tab terminal.
+  </p>
+  <div class="cta-row">
+    <a href="https://github.com/itsela-ms/DeepSky/releases/latest" class="btn btn-primary">
+      ⬇ Download Latest
+    </a>
+    <a href="https://github.com/itsela-ms/DeepSky/releases" class="btn btn-secondary">
+      🍎 View all releases
+    </a>
+    <a href="https://github.com/itsela-ms/DeepSky" class="btn btn-secondary">
+      ⭐ View on GitHub
+    </a>
+    <a href="#about-section" class="btn btn-secondary">
+      ℹ About &amp; Changelog
+    </a>
+  </div>
+  <div class="prereq">
+    <strong>Prerequisite:</strong> GitHub Copilot CLI installed and authenticated. Windows users can install it with <code>winget install github.copilot</code>.
+  </div>
+</div>
+
+<!-- What's New -->
+<section style="padding-bottom: 1rem;">
+  <h2 class="section-title">What's New</h2>
+  <div style="max-width: 600px; margin: 0 auto; background: var(--mantle); border-radius: 12px; border: 1px solid var(--surface0); overflow: hidden;">
+    <div style="padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 0.9rem;">
+      <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+        <span style="font-size: 1.2rem; flex-shrink: 0;">🖱</span>
+        <div>
+          <div style="font-weight: 600; color: var(--text); font-size: 0.95rem;">Terminal scrolling is back</div>
+          <div style="color: var(--subtext0); font-size: 0.85rem; margin-top: 2px;">Scrollable Copilot and Agency panes receive wheel events again while plain drag selection and clean copy stay intact.</div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+        <span style="font-size: 1.2rem; flex-shrink: 0;">🚦</span>
+        <div>
+          <div style="font-weight: 600; color: var(--text); font-size: 0.95rem;">Slow launches show immediately</div>
+          <div style="color: var(--subtext0); font-size: 0.85rem; margin-top: 2px;">New Copilot or Agency sessions now appear in the Active list as Starting while the real CLI session is still coming online.</div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+        <span style="font-size: 1.2rem; flex-shrink: 0;">📌</span>
+        <div>
+          <div style="font-weight: 600; color: var(--text); font-size: 0.95rem;">Work Item context is richer</div>
+          <div style="color: var(--subtext0); font-size: 0.85rem; margin-top: 2px;">Associated Work Items in Session Status now show their type and title, with long titles truncated and the full text available on hover.</div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+        <span style="font-size: 1.2rem; flex-shrink: 0;">💬</span>
+        <div>
+          <div style="font-weight: 600; color: var(--text); font-size: 0.95rem;">Feedback is one click away</div>
+          <div style="color: var(--subtext0); font-size: 0.85rem; margin-top: 2px;">Settings &gt; About now includes quick Email and Teams actions for sending bugs, rough edges, and workflow wishes.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features — simple list -->
+<section>
+  <h2 class="section-title">Features</h2>
+  <ul class="feature-list">
+    <li><span class="fl-icon">🗂</span> Visual sidebar — browse, search, and rename all sessions (active + history)</li>
+    <li><span class="fl-icon">📂</span> Session grouping — Edge-style groups with drag-and-drop, colors, collapse/expand, whole-group reorder, and in-place rename that survives live refreshes</li>
+    <li><span class="fl-icon">🕘</span> Recent History scope — by default DeepSky shows the last 3 months / 500 sessions, keeps sidebar search metadata-only, and offers a visible Show all history button for the full archive</li>
+    <li><span class="fl-icon">📁</span> Working directory — pick a directory per session, change on the fly without dropping the session, persisted across restarts, now shown as an outline-only yellow folder affordance in the Active list</li>
+    <li><span class="fl-icon">⚡</span> Live status badges — Working, Waiting, Idle, Pending, Done — updated quickly from substantive agent output without idle redraw flicker</li>
+    <li><span class="fl-icon">🖥</span> Multi-tab terminal — 10K scrollback, link detection, close button on tabs, reliable Ctrl+V paste, first-frame scrolling, and Ctrl+Tab order that mirrors the sidebar</li>
+    <li><span class="fl-icon">🖱</span> Terminal selection and scrolling — click-drag selects terminal text normally, copied output strips terminal scrollbar glyphs, and scrollable Copilot/Agency panes receive wheel events</li>
+    <li><span class="fl-icon">🔔</span> Notifications — toast, badge counter, dropdown panel, native OS alerts</li>
+    <li><span class="fl-icon">📋</span> Session Status panel — live intent, summary, next steps, session-scoped files changed, timeline, and related resources from visible conversation mentions. Work Items show type and truncated title with the full text on hover. Toggle with Ctrl+I.</li>
+    <li><span class="fl-icon">🎨</span> Catppuccin Mocha &amp; Latte themes</li>
+    <li><span class="fl-icon">📑</span> Tab scroll indicators — arrow buttons when tabs overflow the tab bar</li>
+    <li><span class="fl-icon">🏷</span> Smart session tagging — auto-detects SQL, databases, and more</li>
+    <li><span class="fl-icon">⌨</span> Keyboard shortcuts — Ctrl+N, Ctrl+T, Ctrl+Tab, Ctrl+W, Ctrl+C copy, and more</li>
+    <li><span class="fl-icon">🔄</span> Auto-update control — enable or disable update checks; downloaded updates can be installed with Restart now and show visible recovery if the installer does not exit cleanly</li>
+    <li><span class="fl-icon">🍎</span> Cross-platform installers — Windows setup packages plus macOS DMG/ZIP artifacts from release CI</li>
+    <li><span class="fl-icon">🚀</span> Startup loading screen — clear boot progress while sessions, notifications, and restored tabs initialize</li>
+    <li><span class="fl-icon">🧭</span> Agency launcher toggle — optionally start new sessions with <code>agency copilot</code> instead of the default Copilot CLI command</li>
+    <li><span class="fl-icon">⚙️</span> Extra Copilot args — one shared setting for new-session launcher arguments, applied to <code>copilot</code> or <code>agency copilot</code> depending on the Agency toggle</li>
+    <li><span class="fl-icon">🚀</span> One-off launch options — start a single new session with Copilot or Agency and custom args without changing your global launcher settings</li>
+    <li><span class="fl-icon">🚦</span> Starting rows — slow Copilot or Agency launches appear in the Active list immediately while the real session initializes</li>
+    <li><span class="fl-icon">↩</span> Closed-tab restore — Ctrl+Shift+T reopens recently closed sessions without losing the restore stack on transient failures</li>
+    <li><span class="fl-icon">🛠</span> Copilot CLI compatibility — new sessions discover the CLI-assigned session ID after spawn, and saved History sessions reopen by their stable local UUID</li>
+    <li><span class="fl-icon">⚙️</span> Settings tabs — General, Updates, Shortcuts, and About, including the current version and recent release notes</li>
+    <li><span class="fl-icon">📂</span> Directory picker — browse for a default working directory with Browse &amp; Clear buttons</li>
+    <li><span class="fl-icon">✨</span> Enhance Instructions — one-click rewrite of your global Copilot instructions using the latest context-engineering practices, with timestamped backup and one-click rollback</li>
+    <li><span class="fl-icon">📄</span> Files Folder quick action — jump straight to the session's <code>files/</code> directory from the Session Status summary</li>
+  </ul>
+</section>
+
+<section id="about-section">
+  <h2 class="section-title">About &amp; Changelog</h2>
+  <div style="max-width: 760px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
+    <div style="background: var(--mantle); border: 1px solid var(--surface0); border-radius: 12px; padding: 1.25rem 1.4rem;">
+      <div style="font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--blue); margin-bottom: 0.65rem;">Settings &rarr; About</div>
+      <div style="font-size: 1.02rem; font-weight: 700; color: var(--text); margin-bottom: 0.55rem;">Scrolling, status, and feedback are smoother</div>
+      <p style="color: var(--subtext0); font-size: 0.9rem; margin-bottom: 0.85rem;">
+        The latest polish keeps terminal navigation usable, makes slow session starts visible, and adds a direct feedback path from About.
+      </p>
+      <ul style="margin: 0; padding-left: 1.1rem; color: var(--subtext1); font-size: 0.88rem; display: flex; flex-direction: column; gap: 0.45rem;">
+        <li>Settings &rarr; About shows the installed version and recent release notes.</li>
+        <li>Scrollable Copilot and Agency panes respond to mouse wheel events again.</li>
+        <li>Slow session launches show a temporary Starting row in the Active list.</li>
+        <li>Work Items in Session Status show type and title with full hover text.</li>
+        <li>Settings &rarr; About includes quick Email and Teams feedback actions.</li>
+        <li>Download links stay on the GitHub release page instead of being hard-coded into the brochure.</li>
+      </ul>
+    </div>
+    <div style="background: var(--mantle); border: 1px solid var(--surface0); border-radius: 12px; padding: 1.25rem 1.4rem;">
+      <div style="font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--blue); margin-bottom: 0.65rem;">Inside the app</div>
+      <div style="display: flex; flex-direction: column; gap: 0.7rem;">
+        <div style="background: rgba(137,180,250,0.08); border: 1px solid rgba(137,180,250,0.2); border-radius: 10px; padding: 0.8rem 0.9rem;">
+          <div style="font-size: 0.82rem; color: var(--subtext0); margin-bottom: 0.25rem;">Current focus</div>
+          <div style="font-size: 1rem; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono', monospace;">Terminal scrolling and richer Work Item context</div>
+        </div>
+        <div style="background: var(--base); border: 1px solid var(--surface0); border-radius: 10px; padding: 0.85rem 0.95rem;">
+          <div style="font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--blue); margin-bottom: 0.45rem;">Recent release notes</div>
+          <div style="display: flex; flex-direction: column; gap: 0.4rem; color: var(--subtext1); font-size: 0.84rem;">
+            <div><strong style="color: var(--text);">Added</strong> - Starting rows and About feedback actions.</div>
+            <div><strong style="color: var(--text);">Fixed</strong> - Terminal wheel scrolling and Work Item title/type display.</div>
+          </div>
+        </div>
+        <a href="https://github.com/itsela-ms/DeepSky/blob/main/CHANGELOG.md" style="color: var(--blue); text-decoration: none; font-size: 0.88rem; font-weight: 600;">
+          Open the full changelog on GitHub &rarr;
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Interactive mock -->
+<div class="mock-section">
+  <p class="mock-label">Interactive Preview — click around!</p>
+  <div class="mock-window">
+    <!-- Title bar -->
+    <div class="mock-titlebar">
+      <div class="mock-dots"><span class="d-red"></span><span class="d-yellow"></span><span class="d-green"></span></div>
+      <div class="mock-titlebar-text">DeepSky ✦</div>
+      <div class="mock-toolbar-btn active" title="Custom Instructions">☰</div>
+      <div class="mock-bell" id="bellBtn">
+        🔔<span class="mock-bell-badge" id="bellBadge">2</span>
+        <div class="mock-notif-dropdown" id="notifDropdown">
+          <div class="mock-notif-header">Notifications</div>
+          <div class="mock-notif-item">
+            <div class="ni-title">✓ Build completed</div>
+            <div class="ni-body">API refactor · just now</div>
+          </div>
+          <div class="mock-notif-item">
+            <div class="ni-title">💬 PR #482 review requested</div>
+            <div class="ni-body">Auth middleware refactor · 5m ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mock-body">
+      <!-- Sidebar -->
+      <div class="mock-sidebar">
+        <div class="mock-sidebar-tabs">
+          <div class="mock-sidebar-tab active" data-tab="active">Active</div>
+          <div class="mock-sidebar-tab" data-tab="history">History</div>
+        </div>
+        <input class="mock-search" placeholder="Search titles, folders, tags &amp; resources..." />
+        <div class="mock-session-list" id="sessionList">
+          <div class="mock-session active" data-id="api">
+            <div class="mock-session-dot dot-green"></div>
+            <div class="mock-session-info">
+              <div class="mock-session-name">API refactor</div>
+              <div class="mock-session-meta">
+                <span class="mock-badge mb-working">Working</span>
+                <span class="mock-resources"><span class="mock-res-pill">PR</span><span class="mock-res-pill">Repo</span></span>
+              </div>
+            </div>
+            <span class="mock-session-cwd" title="C:\src\DeepSky"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-8l-2-2H5a2 2 0 0 0-2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>
+          </div>
+          <div class="mock-session" data-id="tests">
+            <div class="mock-session-dot dot-yellow"></div>
+            <div class="mock-session-info">
+              <div class="mock-session-name">Fix failing tests</div>
+              <div class="mock-session-meta">
+                <span class="mock-badge mb-waiting">Waiting</span>
+                <span class="mock-resources"><span class="mock-res-pill">Repo</span></span>
+              </div>
+            </div>
+            <span class="mock-session-cwd" title="C:\src\Cloud.Api"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-8l-2-2H5a2 2 0 0 0-2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>
+          </div>
+          <div class="mock-session" data-id="starting">
+            <div class="mock-session-dot dot-off"></div>
+            <div class="mock-session-info">
+              <div class="mock-session-name">Starting Agency session...</div>
+              <div class="mock-session-meta">
+                <span class="mock-badge mb-pending">Starting</span>
+              </div>
+            </div>
+          </div>
+          <div class="mock-session" data-id="deploy">
+            <div class="mock-session-dot dot-off"></div>
+            <div class="mock-session-info">
+              <div class="mock-session-name">Deploy pipeline</div>
+              <div class="mock-session-meta">
+                <span class="mock-badge mb-idle">Idle</span>
+                <span class="mock-resources"><span class="mock-res-pill">Repo</span></span>
+              </div>
+            </div>
+            <span class="mock-session-cwd" title="C:\src\infra-pipelines"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-8l-2-2H5a2 2 0 0 0-2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>
+            <div class="mock-session" data-id="history-info">
+              <div class="mock-session-dot dot-off"></div>
+              <div class="mock-session-info">
+                <div class="mock-session-name">History: recent 3 months</div>
+                <div class="mock-session-meta">
+                  <span class="mock-badge mb-idle">Show all history</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main area -->
+      <div class="mock-main">
+        <div class="mock-tabbar">
+          <div id="tabBar" style="display:contents;"></div>
+          <div class="mock-tab-status active" id="statusBtn" title="Session Status (Ctrl+I)">📋</div>
+        </div>
+        <div class="mock-terminal" id="terminal">
+          <div class="mock-instructions-peek">
+            <div class="mock-instructions-title">Custom Instructions</div>
+            <div class="mock-instructions-copy">Back up, enhance, review, and roll back your instruction set without leaving the app.</div>
+            <div class="mock-instructions-actions">
+              <div class="mock-instructions-btn primary">✨ Enhance</div>
+              <div class="mock-instructions-btn">Review</div>
+            </div>
+          </div>
+          <div class="line"><span class="t-prompt">&gt; copilot "Refactor the auth middleware to use dependency injection"</span></div>
+          <div class="line"><span class="t-copilot">⠋ Analyzing codebase...</span></div>
+          <div class="line"><span class="t-dim">  Found 14 files in src/middleware/</span></div>
+          <div class="line"><span class="t-copilot">⠙ Reading src/middleware/auth.ts...</span></div>
+          <div class="line">&nbsp;</div>
+          <div class="line"><span class="t-copilot">I'll refactor the auth middleware. Here's my plan:</span></div>
+          <div class="line">&nbsp;</div>
+          <div class="line"><span class="t-blue">  1. Extract IAuthService interface</span></div>
+          <div class="line"><span class="t-blue">  2. Create AuthService implementation</span></div>
+          <div class="line"><span class="t-blue">  3. Update middleware to accept IAuthService via constructor</span></div>
+          <div class="line"><span class="t-blue">  4. Register in DI container</span></div>
+          <div class="line">&nbsp;</div>
+          <div class="line"><span class="t-copilot">⠹ Editing src/middleware/auth.ts...</span></div>
+          <span class="cursor-blink"></span>
+        </div>
+        <!-- Info bar -->
+        <div class="mock-info-bar">
+          <span class="mock-info-badge">Session Context</span>
+          <span class="mock-info-title">API refactor</span>
+          <span class="mock-info-divider">│</span>
+          <span class="mock-info-prompt">💬 Refactor the auth middleware to use dependency injection</span>
+        </div>
+        <!-- Toast -->
+        <div class="mock-toast" id="toast">
+          <div class="mock-toast-title">✓ Build completed</div>
+          <div class="mock-toast-body">API refactor session finished successfully</div>
+        </div>
+      </div>
+
+      <!-- Status panel -->
+      <div class="mock-res-panel open" id="resPanel">
+        <div class="mock-res-header">
+          📋 Session Status
+          <span class="mock-res-close" id="resPanelClose">✕</span>
+        </div>
+        <div id="resPanelContent" class="mock-status-body">
+          <div class="mock-status-intent" id="statusIntent">
+            <div class="mock-intent-pulse"></div>
+            <span>Refactoring auth middleware</span>
+          </div>
+          <div class="mock-status-section open" data-section="summary">
+            <div class="mock-status-section-header">
+              <span>📝</span><span class="mock-section-title">Summary</span><span class="mock-section-chevron">▼</span>
+            </div>
+            <div class="mock-status-section-content" id="statusSummary">
+              <div class="mock-summary-text">Refactoring the auth middleware to use dependency injection pattern with IAuthService interface.</div>
+              <div class="mock-summary-meta">
+                <div>
+                  <div class="mock-summary-label">🆔 Session ID</div>
+                  <div class="mock-summary-id-row">
+                    <code id="statusSessionId">a1b2c3d4</code>
+                    <div class="mock-summary-id-copy" title="Copy session ID">📋</div>
+                  </div>
+                </div>
+                <div>
+                  <div class="mock-summary-label">Quick actions</div>
+                  <div class="mock-summary-actions">
+                    <div class="mock-summary-action"><span>📁</span><span>session</span></div>
+                    <div class="mock-summary-action"><span>📄</span><span>files</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="mock-status-section open" data-section="steps">
+            <div class="mock-status-section-header">
+              <span>🎯</span><span class="mock-section-title">Next Steps</span><span class="mock-section-badge" id="statusStepsBadge">2 remaining</span><span class="mock-section-chevron">▼</span>
+            </div>
+            <div class="mock-status-section-content" id="statusSteps">
+              <div class="mock-step done"><span class="mock-step-num">✓</span><span>Extract IAuthService</span></div>
+              <div class="mock-step current"><span class="mock-step-num">2</span><span>Create implementation</span></div>
+              <div class="mock-step"><span class="mock-step-num">3</span><span>Register in DI container</span></div>
+            </div>
+          </div>
+          <div class="mock-status-section open" data-section="resources">
+            <div class="mock-status-section-header">
+              <span>⤴</span><span class="mock-section-title">Resources</span><span class="mock-section-badge" id="statusResBadge">3</span><span class="mock-section-chevron">▼</span>
+            </div>
+            <div class="mock-status-section-content" id="statusResources">
+              <div class="mock-res-item"><span class="ri-label ri-pr">PR</span><span>PR #482</span></div>
+              <div class="mock-res-item"><span class="ri-label ri-repo">Repo</span><span>Cloud.Api</span></div>
+              <div class="mock-res-item" title="WI 8841 [Bug] - Fix terminal scrolling in Copilot panes"><span class="ri-label ri-wi">WI</span><span>#8841 <strong style="color: var(--yellow); font-size: 0.58rem;">Bug</strong> Fix terminal scrolling...</span></div>
+              <div style="font-size: 0.55rem; color: var(--surface2); margin-top: 6px; line-height: 1.35;">Only visible conversation mentions are indexed.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- How it works -->
+<section>
+  <h2 class="section-title">Up and running in 60 seconds</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <h4>Download &amp; Install</h4>
+      <p>Run the installer — goes to your Start Menu, no admin needed.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <h4>Launch</h4>
+      <p>DeepSky picks up your existing Copilot CLI sessions automatically.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <h4>Work</h4>
+      <p>Multiple sessions, real-time status, notifications — all in one window.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Keyboard Shortcuts -->
+<section>
+  <h2 class="section-title">Keyboard Shortcuts</h2>
+  <div style="max-width: 650px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+    <div style="background: var(--mantle); border: 1px solid var(--surface0); border-radius: 10px; padding: 1.1rem 1.3rem;">
+      <div style="font-weight: 600; color: var(--blue); font-size: 0.85rem; margin-bottom: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;">Sessions</div>
+      <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.88rem;">
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">New session</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Ctrl+N</span></div>
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Close tab</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Ctrl+W</span></div>
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Next tab</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Ctrl+Tab</span></div>
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Previous tab</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Ctrl+Shift+Tab</span></div>
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Restore closed tab</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Ctrl+Shift+T</span></div>
+      </div>
+    </div>
+    <div style="background: var(--mantle); border: 1px solid var(--surface0); border-radius: 10px; padding: 1.1rem 1.3rem;">
+      <div style="font-weight: 600; color: var(--blue); font-size: 0.85rem; margin-bottom: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;">Panels</div>
+      <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.88rem;">
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Toggle status panel</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Ctrl+I</span></div>
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Focus search</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Ctrl+F</span></div>
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Close / clear</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Escape</span></div>
+      </div>
+    </div>
+    <div style="background: var(--mantle); border: 1px solid var(--surface0); border-radius: 10px; padding: 1.1rem 1.3rem;">
+      <div style="font-weight: 600; color: var(--blue); font-size: 0.85rem; margin-bottom: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;">Terminal</div>
+      <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.88rem;">
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Copy</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Ctrl+C</span></div>
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Paste</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Ctrl+V</span></div>
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Delete word</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Ctrl+Bksp</span></div>
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Newline (no exec)</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Shift+Enter</span></div>
+      </div>
+    </div>
+    <div style="background: var(--mantle); border: 1px solid var(--surface0); border-radius: 10px; padding: 1.1rem 1.3rem;">
+      <div style="font-weight: 600; color: var(--blue); font-size: 0.85rem; margin-bottom: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;">Zoom</div>
+      <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.88rem;">
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Zoom in</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Ctrl+=</span></div>
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Zoom out</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Ctrl+-</span></div>
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Reset zoom</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Ctrl+0</span></div>
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--subtext1);">Scroll zoom</span><span style="color: var(--text); font-family: monospace; background: var(--surface0); padding: 1px 7px; border-radius: 4px; font-size: 0.82rem;">Ctrl+Scroll</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+  <p>
+    <a href="https://github.com/itsela-ms/DeepSky">GitHub</a> ·
+    <a href="https://github.com/itsela-ms/DeepSky/releases">Releases</a> ·
+    MIT License
+  </p>
+  <p style="margin-top: 0.4rem;">Built with Electron, xterm.js, and Catppuccin 🌙</p>
+</footer>
+
+<script>
+(() => {
+  // --- Data ---
+  const sessions = {
+    active: [
+      { id: 'api', name: 'API refactor', badge: 'Working', badgeCls: 'mb-working', dot: 'dot-green', cwd: 'C:\\src\\DeepSky',
+        resources: [{ type: 'PR', cls: 'ri-pr', label: 'PR #482' }, { type: 'Repo', cls: 'ri-repo', label: 'Cloud.Api' }, { type: 'WI', cls: 'ri-wi', label: '#8841' }],
+        pills: ['PR', 'Repo'],
+        status: {
+          intent: 'Refactoring auth middleware',
+          summary: 'Refactoring the auth middleware to use dependency injection with IAuthService interface.',
+          sessionId: 'a1b2c3d4',
+          steps: [
+            { text: 'Extract IAuthService', done: true },
+            { text: 'Create implementation', done: false, current: true },
+            { text: 'Register in DI container', done: false },
+          ]
+        },
+        terminal: [
+          { cls: 't-prompt', text: '> copilot "Refactor the auth middleware to use dependency injection"' },
+          { cls: 't-copilot', text: '⠋ Analyzing codebase...' },
+          { cls: 't-dim', text: '  Found 14 files in src/middleware/' },
+          { cls: 't-copilot', text: '⠙ Reading src/middleware/auth.ts...' },
+          { cls: '', text: '' },
+          { cls: 't-copilot', text: 'I\'ll refactor the auth middleware. Here\'s my plan:' },
+          { cls: '', text: '' },
+          { cls: 't-blue', text: '  1. Extract IAuthService interface' },
+          { cls: 't-blue', text: '  2. Create AuthService implementation' },
+          { cls: 't-blue', text: '  3. Update middleware to accept IAuthService via constructor' },
+          { cls: 't-blue', text: '  4. Register in DI container' },
+          { cls: '', text: '' },
+          { cls: 't-copilot', text: '⠹ Editing src/middleware/auth.ts...' },
+        ]
+      },
+      { id: 'tests', name: 'Fix failing tests', badge: 'Waiting', badgeCls: 'mb-waiting', dot: 'dot-yellow', cwd: 'C:\\src\\Cloud.Api',
+        resources: [{ type: 'Repo', cls: 'ri-repo', label: 'Cloud.Api' }],
+        pills: ['Repo'],
+        status: {
+          intent: 'Fixing test failures',
+          summary: 'Found 3 failing tests in UserService.test.ts related to the caching layer. All fixed.',
+          sessionId: 'e5f6g7h8',
+          steps: [
+            { text: 'Identify failing tests', done: true },
+            { text: 'Fix mock cache setup', done: true },
+            { text: 'Verify all pass', done: true },
+          ]
+        },
+        terminal: [
+          { cls: 't-prompt', text: '> copilot "Fix the 3 failing unit tests in UserService.test.ts"' },
+          { cls: 't-copilot', text: 'I found 3 failing tests. All related to the new caching layer.' },
+          { cls: '', text: '' },
+          { cls: 't-peach', text: '  FAIL  UserService.getById — expected cached result' },
+          { cls: 't-peach', text: '  FAIL  UserService.update — cache not invalidated' },
+          { cls: 't-peach', text: '  FAIL  UserService.delete — stale cache entry' },
+          { cls: '', text: '' },
+          { cls: 't-copilot', text: 'All 3 tests now pass. I updated the mock cache setup in beforeEach.' },
+          { cls: '', text: '' },
+          { cls: 't-green', text: '  ✓ 47 tests passed' },
+          { cls: 't-prompt', text: '> ' },
+        ]
+      },
+      { id: 'deploy', name: 'Deploy pipeline', badge: 'Idle', badgeCls: 'mb-idle', dot: 'dot-off', cwd: 'C:\\src\\infra-pipelines',
+        resources: [{ type: 'Repo', cls: 'ri-repo', label: 'infra-pipelines' }],
+        pills: ['Repo'],
+        status: {
+          intent: null,
+          summary: null,
+          sessionId: 'i9j0k1l2',
+          steps: []
+        },
+        terminal: [
+          { cls: 't-dim', text: '# Session idle — no active task' },
+          { cls: 't-prompt', text: '> ' },
+        ]
+      },
+    ],
+    history: [
+      { id: 'pr-review', name: 'PR review — auth module', badge: 'Pending', badgeCls: 'mb-pending', dot: 'dot-off', cwd: 'C:\\src\\Auth',
+        resources: [{ type: 'PR', cls: 'ri-pr', label: 'PR #471' }, { type: 'WI', cls: 'ri-wi', label: '#8790' }],
+        pills: ['PR', 'WI'],
+        terminal: [
+          { cls: 't-copilot', text: 'Created PR #471 — waiting for review from @danielf.' },
+          { cls: 't-dim', text: '  Status: 1 approval needed' },
+        ]
+      },
+      { id: 'docs', name: 'Update onboarding docs', badge: '✓ Done', badgeCls: 'mb-done', dot: 'dot-off', cwd: 'C:\\src\\Docs',
+        resources: [{ type: 'Wiki', cls: 'ri-repo', label: 'Team Wiki' }],
+        pills: ['Wiki'],
+        terminal: [
+          { cls: 't-copilot', text: 'Updated 4 wiki pages with the new onboarding steps.' },
+          { cls: 't-green', text: '  ✓ Complete' },
+        ]
+      },
+      { id: 'bug', name: 'Fix null ref in scheduler', badge: '✓ Done', badgeCls: 'mb-done', dot: 'dot-off', cwd: 'C:\\src\\Scheduler.Core',
+        resources: [{ type: 'PR', cls: 'ri-pr', label: 'PR #465' }, { type: 'Repo', cls: 'ri-repo', label: 'Scheduler.Core' }],
+        pills: ['PR', 'Repo'],
+        terminal: [
+          { cls: 't-copilot', text: 'Root cause: SchedulerJob.Run() doesn\'t null-check the callback.' },
+          { cls: 't-copilot', text: 'Fixed and merged via PR #465.' },
+          { cls: 't-green', text: '  ✓ Complete' },
+        ]
+      },
+    ]
+  };
+
+  let currentTab = 'active';
+  let selectedSession = sessions.active[0];
+  let openTabs = [sessions.active[0], sessions.active[1]];
+  let resOpen = true;
+  let typingTimer = null;
+
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const $ = s => document.querySelector(s);
+  const $$ = s => document.querySelectorAll(s);
+
+  // --- Render sidebar ---
+  function renderSessions() {
+    const list = $('#sessionList');
+    const data = sessions[currentTab];
+    list.innerHTML = data.map(s => `
+      <div class="mock-session ${s.id === selectedSession.id ? 'active' : ''}" data-id="${s.id}">
+        <div class="mock-session-dot ${s.dot}"></div>
+        <div class="mock-session-info">
+          <div class="mock-session-name">${s.name}</div>
+          <div class="mock-session-meta">
+            <span class="mock-badge ${s.badgeCls}">${s.badge}</span>
+            <span class="mock-resources">${(s.pills || []).map(p => `<span class="mock-res-pill">${p}</span>`).join('')}</span>
+          </div>
+        </div>
+        <span class="mock-session-cwd" title="${s.cwd || 'Working directory'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-8l-2-2H5a2 2 0 0 0-2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>
+      </div>
+    `).join('');
+
+    list.querySelectorAll('.mock-session').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.id;
+        const s = [...sessions.active, ...sessions.history].find(x => x.id === id);
+        if (s) selectSession(s);
+      });
+    });
+  }
+
+  // --- Render tabs ---
+  function renderTabs() {
+    const bar = $('#tabBar');
+    bar.innerHTML = openTabs.map(s => `
+      <div class="mock-tab ${s.id === selectedSession.id ? 'active' : ''}" data-id="${s.id}">
+        ${s.name}<span class="tab-close">✕</span>
+      </div>
+    `).join('');
+
+    bar.querySelectorAll('.mock-tab').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.target.classList.contains('tab-close')) {
+          const id = el.dataset.id;
+          openTabs = openTabs.filter(t => t.id !== id);
+          if (selectedSession.id === id && openTabs.length) {
+            selectSession(openTabs[0]);
+          } else {
+            renderTabs();
+            renderSessions();
+          }
+          return;
+        }
+        const s = [...sessions.active, ...sessions.history].find(x => x.id === el.dataset.id);
+        if (s) selectSession(s);
+      });
+    });
+  }
+
+  // --- Render terminal with typing effect ---
+  function renderTerminal(s) {
+    const term = $('#terminal');
+    term.innerHTML = '';
+    if (typingTimer) { clearTimeout(typingTimer); typingTimer = null; }
+
+    const lines = s.terminal || [];
+    let i = 0;
+
+    function addLine() {
+      if (i >= lines.length) {
+        // Add cursor at end
+        const cursor = document.createElement('span');
+        cursor.className = 'cursor-blink';
+        term.appendChild(cursor);
+        return;
+      }
+      const l = lines[i];
+      const div = document.createElement('div');
+      div.className = 'line';
+      if (l.cls) {
+        const span = document.createElement('span');
+        span.className = l.cls;
+        span.textContent = l.text;
+        div.appendChild(span);
+      } else {
+        div.textContent = l.text || '\u00A0';
+      }
+      term.appendChild(div);
+      i++;
+      const delay = l.text.length > 40 ? 120 : l.text.length === 0 ? 40 : 80;
+      typingTimer = setTimeout(addLine, delay);
+    }
+    addLine();
+  }
+
+  // --- Render status panel ---
+  function renderResources(s) {
+    const st = s.status || {};
+    // Intent
+    const intentEl = $('#statusIntent');
+    if (st.intent) {
+      intentEl.style.display = '';
+      intentEl.querySelector('span').textContent = st.intent;
+    } else {
+      intentEl.style.display = 'none';
+    }
+    // Summary
+    const summaryEl = $('#statusSummary');
+    summaryEl.querySelector('.mock-summary-text').textContent = st.summary || 'No summary yet for this session.';
+    summaryEl.querySelector('#statusSessionId').textContent = (st.sessionId || '').substring(0, 8);
+    // Steps
+    const stepsEl = $('#statusSteps');
+    const steps = st.steps || [];
+    if (steps.length) {
+      stepsEl.parentElement.style.display = '';
+      const doneCount = steps.filter(s => s.done).length;
+      const remaining = steps.length - doneCount;
+      $('#statusStepsBadge').textContent = remaining > 0 ? `${remaining} remaining` : 'done';
+      stepsEl.innerHTML = steps.map((step, i) => {
+        const cls = step.done ? 'done' : step.current ? 'current' : '';
+        const num = step.done ? '✓' : String(i + 1);
+        return `<div class="mock-step ${cls}"><span class="mock-step-num">${num}</span><span>${step.text}</span></div>`;
+      }).join('');
+    } else {
+      stepsEl.parentElement.style.display = 'none';
+    }
+    // Resources
+    const resEl = $('#statusResources');
+    const resources = s.resources || [];
+    if (resources.length) {
+      resEl.parentElement.style.display = '';
+      $('#statusResBadge').textContent = resources.length;
+      resEl.innerHTML = resources.map(r => `<div class="mock-res-item"><span class="ri-label ${r.cls}">${r.type}</span><span>${r.label}</span></div>`).join('');
+    } else {
+      resEl.parentElement.style.display = 'none';
+    }
+  }
+
+  // Section collapse toggle
+  document.querySelectorAll('.mock-status-section-header').forEach(header => {
+    header.addEventListener('click', () => {
+      header.parentElement.classList.toggle('open');
+    });
+  });
+
+  // --- Select session ---
+  function selectSession(s) {
+    selectedSession = s;
+    if (!openTabs.find(t => t.id === s.id)) openTabs.push(s);
+    renderSessions();
+    renderTabs();
+    renderTerminal(s);
+    renderResources(s);
+    renderInfoBar(s);
+    // Auto-open resource panel if session has resources
+    if (s.resources && s.resources.length) {
+      resOpen = true;
+      $('#resPanel').classList.add('open');
+    }
+  }
+
+  function renderInfoBar(s) {
+    const bar = document.querySelector('.mock-info-bar');
+    if (!bar) return;
+    const prompt = (s.terminal || []).find(l => l.cls === 't-prompt');
+    const promptText = prompt ? prompt.text.replace(/^>\s*copilot\s*"?/, '').replace(/"$/, '') : '';
+    bar.querySelector('.mock-info-title').textContent = s.name;
+    const promptEl = bar.querySelector('.mock-info-prompt');
+    if (promptText) {
+      promptEl.textContent = '💬 ' + promptText;
+      promptEl.style.display = '';
+      bar.querySelector('.mock-info-divider').style.display = '';
+    } else {
+      promptEl.style.display = 'none';
+      bar.querySelector('.mock-info-divider').style.display = 'none';
+    }
+  }
+
+  // --- Sidebar tabs ---
+  $$('.mock-sidebar-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      currentTab = tab.dataset.tab;
+      $$('.mock-sidebar-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const data = sessions[currentTab];
+      if (data.length) selectSession(data[0]);
+      else renderSessions();
+    });
+  });
+
+  // --- Status panel toggle (📋 button) ---
+  $('#resPanelClose').addEventListener('click', () => {
+    resOpen = false;
+    $('#resPanel').classList.remove('open');
+    $('#statusBtn').classList.remove('active');
+  });
+
+  $('#statusBtn').addEventListener('click', () => {
+    resOpen = !resOpen;
+    $('#resPanel').classList.toggle('open', resOpen);
+    $('#statusBtn').classList.toggle('active', resOpen);
+  });
+
+  // Bell shows notification dropdown
+  $('#bellBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const dd = $('#notifDropdown');
+    const opening = !dd.classList.contains('open');
+    dd.classList.toggle('open', opening);
+    if (opening) $('#bellBadge').classList.remove('visible');
+  });
+
+  document.addEventListener('click', () => {
+    $('#notifDropdown').classList.remove('open');
+  });
+
+  // --- Search filter ---
+  $('.mock-search').addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    const data = sessions[currentTab];
+    const filtered = data.filter(s => s.name.toLowerCase().includes(q));
+    const list = $('#sessionList');
+    // Quick re-render of filtered
+    list.innerHTML = filtered.map(s => `
+      <div class="mock-session ${s.id === selectedSession.id ? 'active' : ''}" data-id="${s.id}">
+        <div class="mock-session-dot ${s.dot}"></div>
+        <div class="mock-session-info">
+          <div class="mock-session-name">${s.name}</div>
+          <div class="mock-session-meta">
+            <span class="mock-badge ${s.badgeCls}">${s.badge}</span>
+          </div>
+        </div>
+        <span class="mock-session-cwd" title="${s.cwd || 'Working directory'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-8l-2-2H5a2 2 0 0 0-2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>
+      </div>
+    `).join('');
+    list.querySelectorAll('.mock-session').forEach(el => {
+      el.addEventListener('click', () => {
+        const s = [...sessions.active, ...sessions.history].find(x => x.id === el.dataset.id);
+        if (s) selectSession(s);
+      });
+    });
+  });
+
+  // --- Toast + notification badge animation ---
+  function showToast() {
+    $('#bellBadge').classList.add('visible');
+    setTimeout(() => {
+      const toast = $('#toast');
+      toast.classList.add('visible');
+      setTimeout(() => toast.classList.remove('visible'), 4000);
+    }, 6000);
+  }
+
+  // --- Typing animation for "Working" session ---
+  function animateWorking() {
+    if (reduceMotion) return;
+    const spinners = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+    let si = 0;
+    setInterval(() => {
+      // Find spinner in terminal if API refactor is active
+      if (selectedSession.id === 'api') {
+        const lines = $('#terminal').querySelectorAll('.line .t-copilot');
+        lines.forEach(span => {
+          if (span.textContent.match(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/)) {
+            span.textContent = spinners[si] + span.textContent.slice(1);
+          }
+        });
+      }
+      si = (si + 1) % spinners.length;
+    }, 100);
+  }
+
+  // --- Init ---
+  renderSessions();
+  renderTabs();
+  renderTerminal(selectedSession);
+  renderResources(selectedSession);
+  if (!reduceMotion) {
+    setTimeout(showToast, 3000);
+  }
+  animateWorking();
+
+})();
+</script>
+
+</body>
+</html>

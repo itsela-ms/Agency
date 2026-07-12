@@ -4,6 +4,18 @@ All notable changes to DeepSky are documented here.
 
 ## [Unreleased]
 
+## [1.2.8-beta.1] - 2026-07-12
+
+### Added
+- **Active-list launch feedback** - New Session now shows a temporary Starting row immediately while slow Copilot or Agency launchers create the real session.
+- **Contact and feedback links** - Settings > About now includes quick actions to email Itay or open a Teams chat for feedback.
+
+### Fixed
+- **Terminal wheel scrolling works again** - scrollable Copilot and Agency terminal panes receive SGR wheel events while plain drag selection and copy stay intact.
+- **New Session startup failures are actionable** - session-breaking extra launcher args such as `--mcp gateway` are rejected before spawn, and CLI startup failures now surface the actual CLI error instead of timing out while waiting for a session folder.
+- **Work Item context is clearer** - associated Work Items in Session Status now show type plus a truncated title, with the full type and title visible on hover.
+- **Resource rendering is safer** - untrusted Work Item titles are escaped safely in text and hover attributes.
+
 ## [1.2.7] - 2026-07-09
 
 ### Added

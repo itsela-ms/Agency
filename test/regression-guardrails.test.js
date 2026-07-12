@@ -78,6 +78,32 @@ describe('terminal link handling — regression guardrails', () => {
   });
 });
 
+describe('terminal mouse handling — regression guardrails', () => {
+  it('strips mouse tracking for drag selection but forwards tracked wheel events to the PTY', () => {
+    expect(RENDERER_SRC).toMatch(/function updateTerminalMouseTracking\(entry,\s*data\)/);
+    expect(RENDERER_SRC).toMatch(/function forwardTrackedMouseWheel\(sessionId,\s*entry,\s*event\)/);
+    expect(RENDERER_SRC).toMatch(/window\.api\.writePty\(sessionId,\s*`\\x1b\[<\$\{button\};\$\{cell\.col\};\$\{cell\.row\}M`\)/);
+    expect(RENDERER_SRC).toMatch(/terminal\.attachCustomWheelEventHandler\(\(event\) => \{[\s\S]*?return !forwardTrackedMouseWheel/);
+    expect(RENDERER_SRC).not.toMatch(/wrapper\.addEventListener\('wheel'/);
+    expect(RENDERER_SRC).toMatch(/updateTerminalMouseTracking\(entry,\s*data\);[\s\S]*?stripMouseTrackingSequences\(data\)/);
+  });
+});
+
+describe('status panel resource rendering — regression guardrails', () => {
+  it('escapes quotes so untrusted resource titles cannot break out of attributes', () => {
+    expect(RENDERER_SRC).toMatch(/replace\(\/"\/g,\s*['"]&quot;['"]\)\.replace\(\/'\/g,\s*['"]&#39;['"]\)/);
+  });
+
+  it('renders work item titles as truncated details with full text in the hover title', () => {
+    expect(RENDERER_SRC).toMatch(/status-resource-title/);
+    expect(RENDERER_SRC).toMatch(/status-resource-type/);
+    expect(RENDERER_SRC).toMatch(/WI \$\{r\.id\}\$\{r\.workItemType \? ` \[\$\{r\.workItemType\}\]` : ''\}/);
+    expect(STYLES_SRC).toMatch(/\.status-resource-details\s*\{[\s\S]*?text-overflow:\s*ellipsis/);
+    expect(STYLES_SRC).toMatch(/\.status-resource-title/);
+    expect(STYLES_SRC).toMatch(/\.status-resource-type/);
+  });
+});
+
 describe('shell:openExternal IPC — regression guardrails', () => {
   it('only forwards http(s) URLs to shell.openExternal', () => {
     const handler = MAIN_SRC.match(/ipcMain\.handle\(\s*['"]shell:openExternal['"][\s\S]*?\}\s*\)\s*;/);
@@ -86,6 +112,24 @@ describe('shell:openExternal IPC — regression guardrails', () => {
     expect(block).toMatch(/http:\/\//);
     expect(block).toMatch(/https:\/\//);
     expect(block).toMatch(/shell\.openExternal/);
+  });
+
+  it('keeps About contact actions on http(s) web links allowed by shell:openExternal', () => {
+    expect(RENDERER_SRC).toMatch(/const CONTACT_EMAIL = 'itsela@microsoft\.com'/);
+    expect(RENDERER_SRC).toMatch(/https:\/\/outlook\.office\.com\/mail\/deeplink\/compose/);
+    expect(RENDERER_SRC).toMatch(/https:\/\/teams\.microsoft\.com\/l\/chat\/0\/0/);
+    expect(RENDERER_SRC).toMatch(/aboutContactEmailBtn\?\.addEventListener\('click'[\s\S]*?window\.api\.openExternal\(CONTACT_EMAIL_URL\)/);
+    expect(RENDERER_SRC).toMatch(/aboutContactTeamsBtn\?\.addEventListener\('click'[\s\S]*?window\.api\.openExternal\(CONTACT_TEAMS_URL\)/);
+    expect(RENDERER_SRC).not.toMatch(/mailto:/);
+    expect(RENDERER_SRC).not.toMatch(/msteams:/);
+  });
+
+  it('keeps About brochure action useful when the local brochure file is missing', () => {
+    expect(MAIN_SRC).toMatch(/const DEEPSKY_BROCHURE_URL = 'https:\/\/itsela-ms\.github\.io\/DeepSky\/deepsky-brochure\.html'/);
+    expect(MAIN_SRC).toMatch(/return \{ available: true,\s*localAvailable: brochureInfo\.found \}/);
+    expect(MAIN_SRC).toMatch(/shell\.openExternal\(DEEPSKY_BROCHURE_URL\)/);
+    expect(RENDERER_SRC).toMatch(/aboutOpenBrochureBtn\.disabled = false/);
+    expect(RENDERER_SRC).toMatch(/Local brochure not found; opens the online DeepSky brochure instead/);
   });
 });
 
@@ -133,11 +177,26 @@ describe('main process session creation — regression guardrails', () => {
     expect(RENDERER_SRC).toMatch(/btnNewOptions\.classList\.toggle\('is-blocked', optionsBlocked\)/);
     expect(RENDERER_SRC).toMatch(/newSessionLauncherCopilotInput\.disabled = !copilotAvailable/);
     expect(RENDERER_SRC).toMatch(/newSessionLauncherAgencyInput\.disabled = !agencyAvailable/);
+    expect(RENDERER_SRC).toMatch(/btnNew\.addEventListener\('click',\s*\(\) => newSession\(\)\)/);
+    expect(RENDERER_SRC).toMatch(/btnNewCenter\.addEventListener\('click',\s*\(\) => newSession\(\)\)/);
+    expect(RENDERER_SRC).not.toMatch(/addEventListener\('click',\s*newSession\)/);
     expect(RENDERER_SRC).toMatch(/function isBlockingModalOpen\(\)/);
     expect(RENDERER_SRC).toMatch(/window\.api\.onRestoreTabShortcut\(\(\) => \{[\s\S]*?if \(isBlockingModalOpen\(\)\) return;/);
     expect(RENDERER_SRC).toMatch(/if \(isBlockingModalOpen\(\)\) \{[\s\S]*?e\.preventDefault\(\)[\s\S]*?return/);
     expect(RENDERER_SRC).toMatch(/newSessionOptionsOverlay[\s\S]*?e\.key === 'Escape'[\s\S]*?e\.stopPropagation\(\)/);
     expect(RENDERER_SRC).not.toMatch(/updateSettings\(\{\s*copilotArgs:\s*launcherArgs/);
+  });
+
+  it('shows a pending active-list row before slow new-session IPC resolves', () => {
+    expect(RENDERER_SRC).toMatch(/const pendingSessionStarts = new Map\(\)/);
+    expect(RENDERER_SRC).toMatch(/function createPendingSessionStart/);
+    expect(RENDERER_SRC).toMatch(/pendingStartId = createPendingSessionStart\(\{ launcher: availability\.launcher, cwd \}\);[\s\S]*?renderSessionList\(\);[\s\S]*?const result = await window\.api\.newSession\(request\)/);
+    expect(RENDERER_SRC).toMatch(/removePendingSessionStart\(pendingStartId\);[\s\S]*?sessionAliveState\.add\(sessionId\)/);
+    expect(RENDERER_SRC).toMatch(/function getActiveSidebarIds\(\)[\s\S]*?pendingSessionStarts\.keys\(\)/);
+    expect(RENDERER_SRC).toMatch(/const persistedSessionOrder = sessionOrder\.filter\(id => !pendingSessionStarts\.has\(id\)\)/);
+    expect(RENDERER_SRC).toMatch(/if \(pendingSessionStarts\.has\(sessionId\)\) return;[\s\S]*?cwdPickerActive\.has\(sessionId\)/);
+    expect(RENDERER_SRC).toMatch(/if \(session\.cwd && !isStarting\)/);
+    expect(STYLES_SRC).toMatch(/#sidebar\.collapsed \.session-item\.starting::after/);
   });
 
   it('uses an absolute Windows command processor path for .cmd launchers', () => {

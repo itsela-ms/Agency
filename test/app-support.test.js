@@ -181,6 +181,13 @@ describe('app-support', () => {
     it('rejects shell control characters', () => {
       expect(() => parseLauncherArgs('--agent squad & whoami')).toThrow(/shell control/);
     });
+
+    it('rejects session-breaking flags that prevent a fresh interactive session', () => {
+      expect(() => parseLauncherArgs('--mcp gateway')).toThrow(/cannot include --mcp/);
+      expect(() => parseLauncherArgs('--resume abc')).toThrow(/cannot include --resume/);
+      expect(() => parseLauncherArgs('--session-id=11111111-2222-4333-8444-555555555555')).toThrow(/cannot include --session-id/);
+      expect(() => parseLauncherArgs('-p "do work"')).toThrow(/cannot include -p/);
+    });
   });
 
   describe('command-path caching', () => {
