@@ -368,12 +368,11 @@ if (!hasSingleInstanceLock) {
   });
 
   // IPC: Start a new session
-  // Returns { sessionId, bufferedData } — bufferedData is any pre-warm output
-  // accumulated by a claimed standby pty. The renderer writes it to the xterm
-  // AFTER creating the terminal so it cannot race with `pty:data` events that
-  // would otherwise arrive before the terminal exists (which silently dropped
-  // the initial CLI output and left the terminal in alt-buffer mode with no
-  // scrollback, making it appear "non-scrollable" until /restart redrew it).
+  // Returns { sessionId, bufferedData, exitCode } — bufferedData is any
+  // pre-warm or cold-start output accumulated before the renderer can create
+  // the terminal. The renderer writes it to xterm AFTER createTerminal, then
+  // applies exitCode if the CLI already exited, avoiding lost startup output
+  // and dead tabs caused by pty events racing the IPC return.
   ipcMain.handle('session:new', async (event, request) => {
     const launchRequest = resolveNewSessionLaunchRequest(request);
     if (!launchRequest.available) {
@@ -396,13 +395,28 @@ if (!hasSingleInstanceLock) {
 
     // Cold start fallback
     const sessionId = await ptyManager.newSession(cwd || undefined, launcher, [], launcherArgs);
-    if (cwd) {
-      await sessionService.saveCwd(sessionId, cwd);
+    pendingColdStarts.set(sessionId, { chunks: ptyDataBuffers.get(sessionId) || [], exitCode: null });
+    ptyDataBuffers.delete(sessionId);
+    let pending;
+    try {
+      if (cwd) {
+        await sessionService.saveCwd(sessionId, cwd);
+      }
+      await sessionService.saveLauncher(sessionId, launcher);
+      await sessionService.saveLauncherArgs(sessionId, launcherArgs);
+      pending = pendingColdStarts.get(sessionId);
+    } catch (error) {
+      ptyManager.kill(sessionId);
+      throw error;
+    } finally {
+      pendingColdStarts.delete(sessionId);
     }
-    await sessionService.saveLauncher(sessionId, launcher);
-    await sessionService.saveLauncherArgs(sessionId, launcherArgs);
     scheduleWarmUp();
-    return { sessionId, bufferedData: '' };
+    return {
+      sessionId,
+      bufferedData: pending?.chunks.length ? pending.chunks.join('') : '',
+      exitCode: pending?.exitCode ?? null,
+    };
   });
 
   // IPC: Pick a directory (native OS dialog)
@@ -682,6 +696,15 @@ if (!hasSingleInstanceLock) {
   ptyManager.on('exit', (sessionId, exitCode) => {
     // Suppress exit handling during cwd change (session will be respawned)
     if (cwdChangingSessions.has(sessionId)) return;
+    const pending = pendingColdStarts.get(sessionId);
+    if (pending) {
+      pending.exitCode = exitCode;
+      if (ptyDataBuffers.has(sessionId)) {
+        pending.chunks.push(...ptyDataBuffers.get(sessionId));
+        ptyDataBuffers.delete(sessionId);
+      }
+      return;
+    }
 
     // Flush any remaining buffered data before signalling exit
     if (ptyDataBuffers.has(sessionId) && mainWindow && !mainWindow.isDestroyed()) {
@@ -849,6 +872,7 @@ if (!hasSingleInstanceLock) {
 
   // Forward pty output to renderer — batch at 16ms intervals to prevent IPC flooding
   const ptyDataBuffers = new Map(); // sessionId -> string[]
+  const pendingColdStarts = new Map(); // sessionId -> { chunks: string[], exitCode: number|null }
 
   function flushPtyData() {
     ptyFlushTimer = null;
@@ -857,12 +881,22 @@ if (!hasSingleInstanceLock) {
       return;
     }
     for (const [sessionId, chunks] of ptyDataBuffers) {
+      const pending = pendingColdStarts.get(sessionId);
+      if (pending) {
+        pending.chunks.push(...chunks);
+        continue;
+      }
       mainWindow.webContents.send('pty:data', { sessionId, data: chunks.join('') });
     }
     ptyDataBuffers.clear();
   }
 
   ptyManager.on('data', (sessionId, data) => {
+    const pending = pendingColdStarts.get(sessionId);
+    if (pending) {
+      pending.chunks.push(data);
+      return;
+    }
     if (!ptyDataBuffers.has(sessionId)) ptyDataBuffers.set(sessionId, []);
     ptyDataBuffers.get(sessionId).push(data);
     if (!ptyFlushTimer) {

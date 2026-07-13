@@ -1,6 +1,7 @@
 const EventEmitter = require('events');
 const path = require('path');
 const fs = require('fs');
+const { randomUUID } = require('crypto');
 
 const os = require('os');
 const { isValidSessionId, buildAugmentedPath, parseLauncherArgs, resolveAgencyInfo } = require('./app-support');
@@ -50,17 +51,16 @@ class PtyManager extends EventEmitter {
     this._standby = null;
     this._warmUpGeneration = 0;
 
-    // Pre-CLI-1.0.49, passing `--resume <fresh-uuid>` made the CLI silently
-    // create a brand-new session at that exact UUID, which DeepSky relied on
-    // so it could track the session by its self-generated ID. CLI 1.0.49+
-    // rejects unknown IDs ("Error: No session, task, or name matched ...") so
-    // DeepSky now spawns new sessions WITHOUT `--resume` and discovers the
-    // CLI-assigned session ID by diffing this directory. The discovery is
-    // injectable for tests.
+    // New sessions are created with a DeepSky-generated UUID via
+    // `--session-id <uuid>`. The CLI may create the session-state folder only
+    // after its interactive UI finishes initializing, so DeepSky must not block
+    // tab creation on a filesystem diff. The discoverer remains for targeted
+    // compatibility tests around startup-failure diagnostics.
     this._sessionStateDir = options.sessionStateDir || DEFAULT_SESSION_STATE_DIR;
     this._discoveryTimeoutMs = options.discoveryTimeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS;
     this._sessionIdDiscoverer = options.sessionIdDiscoverer
       || ((before, pty) => this._defaultDiscoverer(before, pty));
+    this._sessionIdFactory = options.sessionIdFactory || randomUUID;
 
     // Serialize concurrent spawn+discover sequences so two parallel
     // newSession/warmUp calls can't race on the folder-diff snapshot.
@@ -98,6 +98,14 @@ class PtyManager extends EventEmitter {
       launcher: resolvedLauncher,
       args: this._launcherArgsKey(resolvedLauncher),
     });
+  }
+
+  _newSessionId() {
+    for (let i = 0; i < 5; i++) {
+      const id = this._sessionIdFactory();
+      if (isValidSessionId(id) && !this.sessions.has(id)) return id;
+    }
+    throw new Error('Failed to allocate a valid session ID.');
   }
 
   _spawnArgs(extraArgs, launcher, overrideArgsText) {
@@ -309,11 +317,8 @@ class PtyManager extends EventEmitter {
     this._evictIfNeeded();
 
     const spawnCwd = cwd || os.homedir();
-    // Snapshot BEFORE spawn so the post-spawn diff reveals the folder the CLI
-    // creates for this new session. We avoid passing --resume/--name because
-    // CLI 1.0.49+ rejects unknown IDs.
-    const beforeSnapshot = await this._snapshotSessionFolders();
-    const buildArgs = ['--yolo', ...extraArgs];
+    const sessionId = this._newSessionId();
+    const buildArgs = ['--session-id', sessionId, '--yolo', ...extraArgs];
     let ptyProcess;
     let resolvedLauncher;
     try {
@@ -346,14 +351,6 @@ class PtyManager extends EventEmitter {
       } else {
         throw new Error(`Failed to spawn PTY: ${err.message}`);
       }
-    }
-
-    let sessionId;
-    try {
-      sessionId = await this._sessionIdDiscoverer(beforeSnapshot, ptyProcess);
-    } catch (err) {
-      try { ptyProcess.kill(); } catch {}
-      throw new Error(`Failed to discover session ID after CLI spawn: ${err.message}`);
     }
 
     const sessionEntry = {
@@ -469,11 +466,11 @@ class PtyManager extends EventEmitter {
     const aliveCount = [...this.sessions.values()].filter(e => e.alive).length;
     if (aliveCount >= this.maxConcurrent) return;
 
-    const beforeSnapshot = await this._snapshotSessionFolders();
+    const sessionId = this._newSessionId();
     let ptyProcess;
     let spawnConfig;
     try {
-      spawnConfig = this._spawnArgs(['--yolo'], resolvedLauncher);
+      spawnConfig = this._spawnArgs(['--session-id', sessionId, '--yolo'], resolvedLauncher);
       const { file, args } = spawnConfig;
       ptyProcess = this._pty.spawn(file, args, {
         name: 'xterm-256color',
@@ -484,16 +481,6 @@ class PtyManager extends EventEmitter {
       });
     } catch {
       // Pre-warm failed — cold start will still work
-      return;
-    }
-
-    let sessionId;
-    try {
-      sessionId = await this._sessionIdDiscoverer(beforeSnapshot, ptyProcess);
-    } catch {
-      // Couldn't determine the CLI's session ID; abandon the standby so a
-      // cold newSession() does the work instead.
-      try { ptyProcess.kill(); } catch {}
       return;
     }
 

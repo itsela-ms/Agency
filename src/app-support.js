@@ -3,6 +3,7 @@ const path = require('path');
 const SAFE_COMMAND_NAME_RE = /^[a-zA-Z0-9._-]+$/;
 const UNSAFE_ARG_CHARS_RE = /[\0\r\n&|<>^]/;
 const SESSION_BREAKING_LAUNCHER_ARGS = new Set([
+  '--',
   '--mcp',
   '-p',
   '--prompt',

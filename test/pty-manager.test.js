@@ -20,13 +20,19 @@ const mockPtyModule = { spawn: vi.fn(() => createMockPty()) };
 // call resolves to a unique stub session ID, mirroring the real CLI's
 // behaviour of creating a fresh session-state folder per spawn.
 let nextDiscoveredId = 0;
+let nextGeneratedId = 0;
 const mockSessionIdDiscoverer = vi.fn(async () => `discovered-${++nextDiscoveredId}`);
+
+function generatedGuid(n) {
+  return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+}
 
 function createManager(settings = {}, overrides = {}) {
   const settingsService = { get: () => ({ maxConcurrent: 5, useAgencyCopilot: false, ...settings }) };
   return new PtyManager('/fake/copilot', settingsService, mockPtyModule, {
     sessionStateDir: '/fake/session-state',
     sessionIdDiscoverer: mockSessionIdDiscoverer,
+    sessionIdFactory: () => generatedGuid(++nextGeneratedId),
     agencyPath: process.platform === 'win32' ? 'C:\\Tools\\agency.exe' : '/opt/agency/bin/agency',
     ...overrides,
   });
@@ -44,6 +50,7 @@ describe('PtyManager', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     nextDiscoveredId = 0;
+    nextGeneratedId = 0;
     mockSessionIdDiscoverer.mockClear();
     mockSessionIdDiscoverer.mockImplementation(async () => `discovered-${++nextDiscoveredId}`);
     manager = createManager();
@@ -357,10 +364,10 @@ describe('PtyManager', () => {
 
       if (process.platform === 'win32') {
         expect(file).toBe('C:\\Tools\\agency.exe');
-        expect(args).toEqual(['copilot', '--yolo']);
+        expect(args).toEqual(['copilot', '--session-id', generatedGuid(1), '--yolo']);
       } else {
         expect(file).toBe('/opt/agency/bin/agency');
-        expect(args).toEqual(['copilot', '--yolo']);
+        expect(args).toEqual(['copilot', '--session-id', generatedGuid(1), '--yolo']);
       }
       expect(options.cwd).toBe('/agency/project');
       expect(manager.sessions.get(id).launcher).toBe('agency');
@@ -371,7 +378,7 @@ describe('PtyManager', () => {
       await manager.newSession('/copilot/project');
       const [, args] = mockPtyModule.spawn.mock.calls[0];
 
-      expect(args).toEqual(['--model', 'gpt-5.5', '--profile', 'fast lane', '--yolo']);
+      expect(args).toEqual(['--model', 'gpt-5.5', '--profile', 'fast lane', '--session-id', generatedGuid(1), '--yolo']);
     });
 
     it('uses captured launcher args for queued cold-start sessions', async () => {
@@ -379,7 +386,7 @@ describe('PtyManager', () => {
       await manager.newSession('/copilot/project', 'copilot', [], '--model captured');
       const [, args] = mockPtyModule.spawn.mock.calls[0];
 
-      expect(args).toEqual(['--model', 'captured', '--yolo']);
+      expect(args).toEqual(['--model', 'captured', '--session-id', generatedGuid(1), '--yolo']);
     });
 
     it('passes the shared custom args after agency copilot when Agency is enabled', async () => {
@@ -389,10 +396,10 @@ describe('PtyManager', () => {
 
       if (process.platform === 'win32') {
         expect(file).toBe('C:\\Tools\\agency.exe');
-        expect(args).toEqual(['copilot', '--agent', 'squad', '--yolo']);
+        expect(args).toEqual(['copilot', '--agent', 'squad', '--session-id', generatedGuid(1), '--yolo']);
       } else {
         expect(file).toBe('/opt/agency/bin/agency');
-        expect(args).toEqual(['copilot', '--agent', 'squad', '--yolo']);
+        expect(args).toEqual(['copilot', '--agent', 'squad', '--session-id', generatedGuid(1), '--yolo']);
       }
     });
 
@@ -419,7 +426,7 @@ describe('PtyManager', () => {
       const [file, args] = mockPtyModule.spawn.mock.calls[0];
 
       expect(file.toLowerCase()).toMatch(/\\system32\\cmd\.exe$/);
-      expect(args).toEqual(['/d', '/s', '/c', '"C:\\Tools\\agency.cmd"', 'copilot', '--agent', 'squad', '--yolo']);
+      expect(args).toEqual(['/d', '/s', '/c', '"C:\\Tools\\agency.cmd"', 'copilot', '--agent', 'squad', '--session-id', generatedGuid(1), '--yolo']);
     });
 
     it('rejects environment-expansion characters for Windows .cmd launcher args', async () => {
@@ -643,75 +650,66 @@ describe('PtyManager', () => {
       expect(args).toContain('--yolo');
     });
 
-    it('newSession returns the ID supplied by the discoverer (CLI-assigned)', async () => {
-      mockSessionIdDiscoverer.mockResolvedValueOnce('cli-assigned-abc-123');
+    it('newSession returns the DeepSky-generated ID passed to the CLI', async () => {
       const id = await manager.newSession('/cwd');
-      expect(id).toBe('cli-assigned-abc-123');
-      expect(manager.sessions.has('cli-assigned-abc-123')).toBe(true);
+      expect(id).toBe(generatedGuid(1));
+      expect(manager.sessions.has(generatedGuid(1))).toBe(true);
+      const [, args] = mockPtyModule.spawn.mock.calls[0];
+      expect(args).toEqual(['--session-id', generatedGuid(1), '--yolo']);
     });
 
-    it('warmUp standby uses the discovered ID, claimStandby returns it', async () => {
-      mockSessionIdDiscoverer.mockResolvedValueOnce('warm-standby-real-id');
+    it('warmUp standby uses the generated ID, claimStandby returns it', async () => {
       await manager.warmUp('/cwd');
-      expect(manager._standby.id).toBe('warm-standby-real-id');
+      expect(manager._standby.id).toBe(generatedGuid(1));
 
       const claimed = manager.claimStandby('/cwd');
-      expect(claimed.id).toBe('warm-standby-real-id');
-      expect(manager.sessions.has('warm-standby-real-id')).toBe(true);
+      expect(claimed.id).toBe(generatedGuid(1));
+      expect(manager.sessions.has(generatedGuid(1))).toBe(true);
     });
 
-    it('discoverer is given a snapshot taken BEFORE the spawn', async () => {
+    it('does not wait for filesystem discovery before returning a new session', async () => {
       mockSessionIdDiscoverer.mockClear();
-      // First snapshot is empty (no folders pre-exist in our fake dir)
       await manager.newSession('/cwd');
-      const [snapshot] = mockSessionIdDiscoverer.mock.calls[0];
-      expect(snapshot).toBeInstanceOf(Set);
+      expect(mockSessionIdDiscoverer).not.toHaveBeenCalled();
     });
 
-    it('newSession kills the spawned PTY and throws when discovery times out', async () => {
+    it('newSession does not fail when the legacy discoverer would time out', async () => {
       const failingDiscoverer = vi.fn(async () => { throw new Error('timeout'); });
       manager = createManager({}, { sessionIdDiscoverer: failingDiscoverer });
       const mockPty = createMockPty();
       mockPtyModule.spawn.mockReturnValueOnce(mockPty);
 
-      await expect(manager.newSession('/cwd')).rejects.toThrow(/discover session ID/);
-      expect(mockPty.kill).toHaveBeenCalled();
+      await expect(manager.newSession('/cwd')).resolves.toBe(generatedGuid(1));
+      expect(mockPty.kill).not.toHaveBeenCalled();
     });
 
-    it('warmUp silently drops the standby when discovery fails (cold spawn will still work)', async () => {
+    it('warmUp does not depend on the legacy discoverer', async () => {
       const failingDiscoverer = vi.fn(async () => { throw new Error('timeout'); });
       manager = createManager({}, { sessionIdDiscoverer: failingDiscoverer });
       const mockPty = createMockPty();
       mockPtyModule.spawn.mockReturnValueOnce(mockPty);
 
       await manager.warmUp('/cwd');
-      expect(manager._standby).toBeNull();
-      expect(mockPty.kill).toHaveBeenCalled();
+      expect(manager._standby.id).toBe(generatedGuid(1));
+      expect(mockPty.kill).not.toHaveBeenCalled();
     });
 
-    it('serializes concurrent newSession calls so each discovers a distinct ID', async () => {
-      // Sanity check: even if two newSession promises start "at the same time",
-      // the spawn lock prevents the second spawn from happening before the
-      // first completes discovery. This guarantees the snapshot diff is
-      // accurate per call.
-      mockSessionIdDiscoverer
-        .mockResolvedValueOnce('first')
-        .mockResolvedValueOnce('second');
-
+    it('concurrent newSession calls each get a distinct generated ID', async () => {
       const [id1, id2] = await Promise.all([
         manager.newSession('/cwd'),
         manager.newSession('/cwd'),
       ]);
 
-      expect(id1).toBe('first');
-      expect(id2).toBe('second');
-      expect(manager.sessions.has('first')).toBe(true);
-      expect(manager.sessions.has('second')).toBe(true);
+      expect(id1).toBe(generatedGuid(1));
+      expect(id2).toBe(generatedGuid(2));
+      expect(manager.sessions.has(generatedGuid(1))).toBe(true);
+      expect(manager.sessions.has(generatedGuid(2))).toBe(true);
     });
   });
 
-  // Integration check for the default fs-based discoverer. We avoid mocking fs
-  // here so a CLI/Node update that changes readdir semantics surfaces here.
+  // Direct checks for the legacy fs-based discoverer used only for startup
+  // failure diagnostics. New sessions use DeepSky-generated --session-id and
+  // do not depend on this path for normal startup.
   describe('default session-id discoverer (fs-based)', () => {
     it('returns the first UUID folder name not present in the before-snapshot', async () => {
       const realFs = require('fs');
@@ -728,14 +726,16 @@ describe('PtyManager', () => {
           { sessionStateDir: tmp, discoveryTimeoutMs: 3000 }
         );
 
-        // Use real timers so the setTimeout below fires.
+        const before = await manager._snapshotSessionFolders();
+        const mockPty = createMockPty();
+
         vi.useRealTimers();
-        const newSessionPromise = manager.newSession('/cwd');
+        const discoverPromise = manager._defaultDiscoverer(before, mockPty);
         // Simulate the CLI creating its folder ~150ms after spawn
         setTimeout(() => {
           realFs.mkdirSync(realPath.join(tmp, discoveredId));
         }, 150);
-        const id = await newSessionPromise;
+        const id = await discoverPromise;
         expect(id).toBe(discoveredId);
       } finally {
         vi.useFakeTimers();
@@ -756,15 +756,18 @@ describe('PtyManager', () => {
           { sessionStateDir: tmp, discoveryTimeoutMs: 3000 }
         );
 
+        const before = await manager._snapshotSessionFolders();
+        const mockPty = createMockPty();
+
         vi.useRealTimers();
-        const newSessionPromise = manager.newSession('/cwd');
+        const discoverPromise = manager._defaultDiscoverer(before, mockPty);
         setTimeout(() => {
           realFs.mkdirSync(realPath.join(tmp, 'not-a-session-id'));
         }, 50);
         setTimeout(() => {
           realFs.mkdirSync(realPath.join(tmp, discoveredId));
         }, 150);
-        const id = await newSessionPromise;
+        const id = await discoverPromise;
         expect(id).toBe(discoveredId);
       } finally {
         vi.useFakeTimers();
@@ -783,8 +786,11 @@ describe('PtyManager', () => {
           mockPtyModule,
           { sessionStateDir: tmp, discoveryTimeoutMs: 200 }
         );
+        const before = await manager._snapshotSessionFolders();
+        const mockPty = createMockPty();
+
         vi.useRealTimers();
-        await expect(manager.newSession('/cwd')).rejects.toThrow(/discover session ID/);
+        await expect(manager._defaultDiscoverer(before, mockPty)).rejects.toThrow(/session-state folder/);
       } finally {
         vi.useFakeTimers();
         realFs.rmSync(tmp, { recursive: true, force: true });
@@ -805,15 +811,16 @@ describe('PtyManager', () => {
         );
         mockPtyModule.spawn.mockReturnValueOnce(mockPty);
 
+        const before = await manager._snapshotSessionFolders();
+
         vi.useRealTimers();
-        const newSessionPromise = manager.newSession('/cwd');
+        const discoverPromise = manager._defaultDiscoverer(before, mockPty);
         setTimeout(() => {
           mockPty._emitData("error: unknown option '--mcp'\r\n");
           mockPty._emitExit(1);
         }, 50);
 
-        await expect(newSessionPromise).rejects.toThrow(/unknown option '--mcp'/);
-        expect(mockPty.kill).toHaveBeenCalled();
+        await expect(discoverPromise).rejects.toThrow(/unknown option '--mcp'/);
       } finally {
         vi.useFakeTimers();
         realFs.rmSync(tmp, { recursive: true, force: true });

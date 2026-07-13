@@ -1627,7 +1627,7 @@ function renderAboutChangelog(changelog, version) {
   }
 
   aboutChangelogEl.replaceChildren();
-  const releases = getRecentChangelogReleases(changelog, ABOUT_CHANGELOG_RELEASE_LIMIT);
+  const releases = getRecentChangelogReleases(changelog, ABOUT_CHANGELOG_RELEASE_LIMIT, { currentVersion: version });
 
   if (aboutReleaseMetaEl) {
     if (!releases.length) {
@@ -2927,6 +2927,7 @@ async function newSession(launchOverrides = null) {
     // with empty scrollback, appearing "non-scrollable" until /restart).
     const sessionId = typeof result === 'string' ? result : result?.sessionId;
     const bufferedData = typeof result === 'string' ? '' : (result?.bufferedData || '');
+    const bufferedExitCode = typeof result === 'string' ? null : result?.exitCode;
     if (!sessionId) throw new Error('Failed to start session.');
     removePendingSessionStart(pendingStartId);
     pendingStartId = null;
@@ -2943,6 +2944,40 @@ async function newSession(launchOverrides = null) {
     }
     switchToSession(sessionId);
     addTab(sessionId, 'New Session');
+    if (Number.isInteger(bufferedExitCode)) {
+      const termEntry = terminals.get(sessionId);
+      if (termEntry) {
+        termEntry.exited = true;
+        termEntry.terminal.write(`\r\n\x1b[90m[Session ended with code ${bufferedExitCode}]\x1b[0m\r\n`, () => {
+          scheduleTerminalViewportSync(sessionId, { refreshSearch: true });
+        });
+        termEntry.exitTimeout = setTimeout(() => {
+          const entry = terminals.get(sessionId);
+          if (entry && entry.exited) {
+            if (entry.titlePoll) clearInterval(entry.titlePoll);
+            entry.terminal.dispose();
+            entry.wrapper.remove();
+            terminals.delete(sessionId);
+            removeTabUi(sessionId);
+            if (activeSessionId === sessionId) {
+              activeSessionId = null;
+              updateSessionPromptGhost(null);
+              const remaining = document.querySelectorAll('.tab');
+              if (remaining.length > 0) switchToSession(remaining[remaining.length - 1].dataset.sessionId);
+              else { emptyState.classList.remove('hidden'); updateStatusPanel(null); }
+            }
+            saveTabState();
+            scheduleRenderSessionList();
+          }
+        }, 3000);
+      }
+      sessionAliveState.delete(sessionId);
+      ensureSessionOrder();
+      clearSessionBusy(sessionId);
+      cwdChangingSessions.delete(sessionId);
+      updateTabStatus(sessionId, false);
+      schedulePatchSessionStateBadges(sessionId);
+    }
 
     // Inject placeholder so the active list renders immediately
     ensureSessionPlaceholder(sessionId, { title: 'New Session', cwd: cwd || '' });

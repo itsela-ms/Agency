@@ -30,6 +30,7 @@ const SHORTCUTS_SRC = readFileSync(join(ROOT, 'src', 'keyboard-shortcuts.js'), '
 const MAIN_SRC = readFileSync(join(ROOT, 'src', 'main.js'), 'utf8');
 const PRELOAD_SRC = readFileSync(join(ROOT, 'src', 'preload.js'), 'utf8');
 const PTY_MANAGER_SRC = readFileSync(join(ROOT, 'src', 'pty-manager.js'), 'utf8');
+const APP_SUPPORT_SRC = readFileSync(join(ROOT, 'src', 'app-support.js'), 'utf8');
 const STYLES_SRC = readFileSync(join(ROOT, 'src', 'styles.css'), 'utf8');
 const INDEX_SRC = readFileSync(join(ROOT, 'src', 'index.html'), 'utf8');
 const UPDATE_SERVICE_SRC = readFileSync(join(ROOT, 'src', 'update-service.js'), 'utf8');
@@ -131,6 +132,10 @@ describe('shell:openExternal IPC — regression guardrails', () => {
     expect(RENDERER_SRC).toMatch(/aboutOpenBrochureBtn\.disabled = false/);
     expect(RENDERER_SRC).toMatch(/Local brochure not found; opens the online DeepSky brochure instead/);
   });
+
+  it('filters About changelog prereleases based on the running app version', () => {
+    expect(RENDERER_SRC).toMatch(/getRecentChangelogReleases\(changelog,\s*ABOUT_CHANGELOG_RELEASE_LIMIT,\s*\{ currentVersion: version \}\)/);
+  });
 });
 
 describe('main process session creation — regression guardrails', () => {
@@ -162,6 +167,10 @@ describe('main process session creation — regression guardrails', () => {
   it('passes captured launcher args into cold new-session spawns', () => {
     expect(MAIN_SRC).toMatch(/ptyManager\.newSession\(cwd \|\| undefined,\s*launcher,\s*\[\],\s*launcherArgs\)/);
     expect(MAIN_SRC).toMatch(/ptyManager\.newSession\(undefined,\s*launcher,\s*\['-i', oneLineCommand\],\s*launcherArgs\)/);
+  });
+
+  it('rejects launcher arg terminator so custom args cannot hide DeepSky session flags', () => {
+    expect(APP_SUPPORT_SRC).toMatch(/SESSION_BREAKING_LAUNCHER_ARGS = new Set\(\[[\s\S]*?['"]--['"]/);
   });
 
   it('supports one-off new-session launcher args without mutating global settings', () => {

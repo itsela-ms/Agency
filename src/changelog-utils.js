@@ -54,14 +54,29 @@ function parseChangelog(markdown) {
   return releases.filter(release => release.sections.some(section => section.items.length > 0));
 }
 
-function getRecentChangelogReleases(markdown, limit = 3) {
+function isPrereleaseVersion(version) {
+  return String(version || '').includes('-');
+}
+
+function getRecentChangelogReleases(markdown, limit = 3, options = {}) {
   if (!Number.isFinite(limit) || limit <= 0) {
     return [];
   }
-  return parseChangelog(markdown).slice(0, limit);
+
+  const currentVersion = String(options.currentVersion || '').trim();
+  const currentIsPrerelease = isPrereleaseVersion(currentVersion);
+  return parseChangelog(markdown)
+    .filter((release) => {
+      if (!isPrereleaseVersion(release.version)) {
+        return true;
+      }
+      return currentIsPrerelease && release.version === currentVersion;
+    })
+    .slice(0, limit);
 }
 
 module.exports = {
   parseChangelog,
   getRecentChangelogReleases,
+  isPrereleaseVersion,
 };

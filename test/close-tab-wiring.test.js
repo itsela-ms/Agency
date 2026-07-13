@@ -122,7 +122,7 @@ describe('session:new IPC contract returns bufferedData', () => {
 
   it('main.js does not send pty:data for warm-standby buffered data', () => {
     // Find the session:new handler body
-    const m = mainSrc.match(/ipcMain\.handle\('session:new',[\s\S]*?return \{ sessionId, bufferedData: '' \};\s*\}\);/);
+    const m = mainSrc.match(/ipcMain\.handle\('session:new',[\s\S]*?return \{\s*sessionId,\s*bufferedData:[\s\S]*?exitCode:[\s\S]*?\};\s*\}\);/);
     expect(m, 'expected session:new handler with new return shape').not.toBeNull();
     // The pre-fix code called `mainWindow.webContents.send('pty:data', { sessionId: claimed.id, data: ... })`
     // inside this handler. Confirm that pattern is gone.
@@ -130,11 +130,12 @@ describe('session:new IPC contract returns bufferedData', () => {
   });
 
   it('main.js returns { sessionId, bufferedData } from session:new', () => {
-    const m = mainSrc.match(/ipcMain\.handle\('session:new',[\s\S]*?return \{ sessionId, bufferedData: '' \};\s*\}\);/);
+    const m = mainSrc.match(/ipcMain\.handle\('session:new',[\s\S]*?return \{\s*sessionId,\s*bufferedData:[\s\S]*?exitCode:[\s\S]*?\};\s*\}\);/);
     expect(m).not.toBeNull();
     // Both warm-standby and cold-start branches return the new shape.
     expect(m[0]).toMatch(/return \{\s*sessionId: claimed\.id,\s*bufferedData:/);
-    expect(m[0]).toMatch(/return \{ sessionId, bufferedData: '' \};/);
+    expect(m[0]).toMatch(/return \{\s*sessionId,\s*bufferedData: pending\?\.chunks\.length/);
+    expect(m[0]).toMatch(/exitCode: pending\?\.exitCode \?\? null/);
   });
 
   it('renderer.js newSession destructures bufferedData and writes it after createTerminal', () => {
@@ -145,5 +146,31 @@ describe('session:new IPC contract returns bufferedData', () => {
     const writeIdx = m[0].indexOf('termEntry.terminal.write(stripMouseTrackingSequences(bufferedData)');
     expect(createIdx).toBeGreaterThan(-1);
     expect(writeIdx).toBeGreaterThan(createIdx);
+  });
+
+  it('main.js buffers cold-start pty data and exit until session:new returns', () => {
+    expect(mainSrc).toMatch(/const pendingColdStarts = new Map\(\)/);
+    expect(mainSrc).toMatch(/pendingColdStarts\.set\(sessionId,\s*\{ chunks: ptyDataBuffers\.get\(sessionId\) \|\| \[\], exitCode: null \}\)/);
+    expect(mainSrc).toMatch(/const pending = pendingColdStarts\.get\(sessionId\);[\s\S]*?pending\.chunks\.push\(data\);[\s\S]*?return;/);
+    expect(mainSrc).toMatch(/const pending = pendingColdStarts\.get\(sessionId\);[\s\S]*?pending\.exitCode = exitCode;[\s\S]*?return;/);
+    expect(mainSrc).toMatch(/finally \{\s*pendingColdStarts\.delete\(sessionId\);\s*\}/);
+    expect(rendererSrc).toMatch(/const bufferedExitCode = typeof result === 'string' \? null : result\?\.exitCode/);
+    expect(rendererSrc).toMatch(/if \(Number\.isInteger\(bufferedExitCode\)\)/);
+  });
+
+  it('renderer.js buffered-exit cleanup mirrors normal pty exit tab cleanup', () => {
+    const m = rendererSrc.match(/if \(Number\.isInteger\(bufferedExitCode\)\) \{[\s\S]*?schedulePatchSessionStateBadges\(sessionId\);\s*\}/);
+    expect(m, 'expected bufferedExitCode cleanup block').not.toBeNull();
+    const body = m[0];
+    expect(body).toMatch(/removeTabUi\(sessionId\)/);
+    expect(body).toMatch(/if \(activeSessionId === sessionId\)/);
+    expect(body).toMatch(/activeSessionId = null/);
+    expect(body).toMatch(/updateSessionPromptGhost\(null\)/);
+    expect(body).toMatch(/emptyState\.classList\.remove\('hidden'\)/);
+    expect(body).toMatch(/updateStatusPanel\(null\)/);
+    expect(body).toMatch(/saveTabState\(\)/);
+    expect(body).toMatch(/scheduleRenderSessionList\(\)/);
+    expect(body).toMatch(/ensureSessionOrder\(\)/);
+    expect(body).toMatch(/clearSessionBusy\(sessionId\)/);
   });
 });
