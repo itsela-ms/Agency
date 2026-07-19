@@ -4,6 +4,15 @@ All notable changes to DeepSky are documented here.
 
 ## [Unreleased]
 
+## [1.2.9-beta.1] - 2026-07-19
+
+### Fixed
+- **Terminal links open reliably** - OSC-8 hyperlinks and visible terminal URLs now open through DeepSky's safe `http(s)` external-link path instead of xterm's browser warning prompt.
+- **Terminal focus recovers when stranded** - clicking terminal space refocuses xterm, and plain typing is forwarded to the active session when focus lands on terminal chrome instead of the hidden helper textarea.
+- **Terminal cursor affordance is clearer** - the terminal uses the normal arrow cursor by default, keeps pointer cursors for links, and leaves Tab / Shift+Tab available for regular keyboard navigation.
+- **Terminal prompt input stays clean** - xterm mouse report bytes are stripped before reaching the Copilot prompt, preventing intermittent random characters after scrolling or submitting.
+- **Copied terminal text drops scrollbar artifacts** - copy-on-select and Ctrl+C remove the terminal scrollbar column without stripping real shell pipes, tables, or box borders.
+
 ## [1.2.8] - 2026-07-13
 
 ### Added

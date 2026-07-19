@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, isCopyShortcut } = require('../src/keyboard-shortcuts');
+const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, stripTerminalMouseInputReports, isCopyShortcut } = require('../src/keyboard-shortcuts');
 
 /** Build a minimal synthetic keydown event. */
 function key(overrides = {}) {
@@ -303,8 +303,17 @@ describe('createTerminalKeyHandler', () => {
       expect(stripTerminalScrollbar('line one   \u2503\nline two \u2503')).toBe('line one\nline two');
     });
 
+    it('removes trailing ascii pipe scrollbars only at the terminal right edge', () => {
+      expect(stripTerminalScrollbar('line one   |\nline two   |', 12)).toBe('line one\nline two');
+      expect(stripTerminalScrollbar('full width|', 11)).toBe('full width');
+      expect(stripTerminalScrollbar('cat foo |', 10)).toBe('cat foo |');
+      expect(stripTerminalScrollbar('hello        |')).toBe('hello        |');
+      expect(stripTerminalScrollbar('grep foo |')).toBe('grep foo |');
+    });
+
     it('collapses a scrollbar-only line to empty', () => {
       expect(stripTerminalScrollbar('   \u2503')).toBe('');
+      expect(stripTerminalScrollbar('   |\n   |', 4)).toBe('\n');
     });
 
     it('leaves mid-line and left-gutter heavy verticals untouched', () => {
@@ -315,6 +324,11 @@ describe('createTerminalKeyHandler', () => {
     it('leaves ordinary text and ascii pipes untouched', () => {
       expect(stripTerminalScrollbar('no bar here')).toBe('no bar here');
       expect(stripTerminalScrollbar('a | b')).toBe('a | b');
+      expect(stripTerminalScrollbar('grep foo  |')).toBe('grep foo  |');
+      expect(stripTerminalScrollbar('grep foo  |', 80)).toBe('grep foo  |');
+      expect(stripTerminalScrollbar('| Name   | Value  |\n| foo    | bar    |')).toBe('| Name   | Value  |\n| foo    | bar    |');
+      expect(stripTerminalScrollbar('Name    |\nAlice   |', 80)).toBe('Name    |\nAlice   |');
+      expect(stripTerminalScrollbar('\u2502 boxed \u2502')).toBe('\u2502 boxed \u2502');
     });
 
     it('is a no-op for empty or non-string input', () => {
@@ -428,7 +442,7 @@ describe('stripMouseTrackingSequences', () => {
     expect(stripMouseTrackingSequences('\x1b[?25l')).toBe('\x1b[?25l');
   });
 
-  it('strips standalone mouse encoding modes because wheel forwarding is handled by the renderer', () => {
+  it('strips standalone mouse encoding modes so xterm keeps normal selection/scroll behavior', () => {
     expect(stripMouseTrackingSequences('\x1b[?1006h')).toBe('');
     expect(stripMouseTrackingSequences('\x1b[?1005h')).toBe('');
     expect(stripMouseTrackingSequences('\x1b[?1015h')).toBe('');
@@ -447,6 +461,23 @@ describe('stripMouseTrackingSequences', () => {
 
   it('does not strip a substring like 10002 (exact-token match only)', () => {
     expect(stripMouseTrackingSequences('\x1b[?10002h')).toBe('\x1b[?10002h');
+  });
+});
+
+describe('stripTerminalMouseInputReports', () => {
+  it('removes SGR mouse reports before they can be written to the PTY', () => {
+    expect(stripTerminalMouseInputReports('hello\x1b[<0;42;12M world')).toBe('hello world');
+    expect(stripTerminalMouseInputReports('\x1b[<64;80;24Mtyped\x1b[<64;80;24m')).toBe('typed');
+  });
+
+  it('removes legacy X10 mouse reports before they can leak into prompt input', () => {
+    expect(stripTerminalMouseInputReports(`before\x1b[M${String.fromCharCode(32, 45, 50)}after`)).toBe('beforeafter');
+  });
+
+  it('leaves normal keyboard input untouched', () => {
+    expect(stripTerminalMouseInputReports('normal prompt text\r')).toBe('normal prompt text\r');
+    expect(stripTerminalMouseInputReports('')).toBe('');
+    expect(stripTerminalMouseInputReports(null)).toBe(null);
   });
 });
 

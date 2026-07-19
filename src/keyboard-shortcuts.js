@@ -77,19 +77,42 @@ function isCopyShortcut(e) {
  * Strips the Copilot CLI's vertical scrollbar from copied terminal text.
  *
  * The embedded CLI paints a scrollbar as a column of U+2503 (BOX DRAWINGS
- * HEAVY VERTICAL, `┃`) glyphs in the rightmost column of the transcript. A
- * multiline / rectangular selection captures that glyph as a trailing
- * character on every line, so copied text ends up peppered with `┃`. We
- * remove a trailing scrollbar glyph — plus the padding whitespace before it —
- * from each line. Anchoring to the end of the line keeps this safe: a `┃`
- * appearing mid-line or in a left gutter is left untouched.
+ * HEAVY VERTICAL, `┃`) glyphs in the rightmost column of the transcript. In
+ * some terminal/font states that same right-edge scrollbar can be copied as a
+ * plain ASCII pipe (`|`). A multiline / rectangular selection captures that
+ * glyph as a trailing character on every line, so copied text ends up peppered
+ * with scrollbar markers. We remove a trailing heavy scrollbar glyph — plus the
+ * padding whitespace before it — from each line. ASCII pipes are stripped only
+ * when they sit at the terminal's right edge, which is where the scrollbar is
+ * painted. Without the terminal width, ASCII pipes are left untouched because
+ * they are too ambiguous.
  *
  * @param {string} text - raw selection text from xterm / DOM selection.
+ * @param {number} terminalColumns - terminal width used to identify the right-edge scrollbar column.
  * @returns {string} the selection with the scrollbar column removed.
  */
-function stripTerminalScrollbar(text) {
+function stripTerminalScrollbar(text, terminalColumns = 0) {
   if (typeof text !== 'string' || !text) return text;
-  return text.replace(/[ \t]*\u2503[ \t]*$/gm, '');
+  const rightEdgeColumn = Number.isFinite(terminalColumns) && terminalColumns > 0
+    ? terminalColumns - 1
+    : -1;
+
+  return text.split(/(\r\n|\r|\n)/).map((part, index) => {
+    if (index % 2 === 1) return part;
+    const body = part || '';
+    let cleaned = body.replace(/[ \t]*\u2503[ \t]*$/, '');
+    const pipeIndex = cleaned.indexOf('|');
+    if (
+      pipeIndex >= 0 &&
+      cleaned.indexOf('|', pipeIndex + 1) < 0 &&
+      rightEdgeColumn >= 0 &&
+      pipeIndex === rightEdgeColumn &&
+      /^[\s\S]*\|[ \t]*$/.test(cleaned)
+    ) {
+      cleaned = cleaned.slice(0, pipeIndex).replace(/[ \t]+$/, '');
+    }
+    return cleaned;
+  }).join('');
 }
 
 /**
@@ -103,9 +126,9 @@ function stripTerminalScrollbar(text) {
  * never selects (only Shift+drag does) and copy-on-select / Ctrl+C have nothing
  * to copy. By swallowing the mode-set sequences here, `areMouseEventsActive`
  * stays false, xterm keeps ownership of the mouse, and plain-drag selection +
- * copy work like a normal terminal. Wheel events are forwarded explicitly from
- * the renderer while the CLI has mouse tracking enabled so scrollable CLI panes
- * still work.
+ * copy work like a normal terminal. Wheel reporting is intentionally disabled:
+ * forwarding mouse report bytes to the PTY can leak those bytes into the prompt
+ * when focus/input state gets out of sync.
  *
  * Only the X10/VT200/button/any-event mouse REPORTING modes (1000–1003) are
  * removed, along with mouse encoding modes (1005/1006/1015/1016). Alt-screen
@@ -127,6 +150,13 @@ function stripMouseTrackingSequences(data) {
     if (kept.length === 0) return '';
     return `\x1b[?${kept.join(';')}${suffix}`;
   });
+}
+
+function stripTerminalMouseInputReports(data) {
+  if (typeof data !== 'string' || !data) return data;
+  return data
+    .replace(/\x1b\[<\d+;\d+;\d+[mM]/g, '')
+    .replace(/\x1b\[M[\s\S]{3}/g, '');
 }
 
 /**
@@ -176,7 +206,12 @@ function createTerminalKeyHandler(sessionId, terminal, api, hooks = {}) {
       const selection = terminal.getSelection();
       if (selection.trim()) {
         e.preventDefault();
-        api.copyText(stripTerminalScrollbar(selection));
+        const cleanedSelection = stripTerminalScrollbar(selection, terminal.cols);
+        if (!cleanedSelection.trim()) {
+          terminal.clearSelection();
+          return false;
+        }
+        api.copyText(cleanedSelection);
         terminal.clearSelection();
         return false;
       }
@@ -225,4 +260,4 @@ function createTerminalKeyHandler(sessionId, terminal, api, hooks = {}) {
   };
 }
 
-module.exports = { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, isCopyShortcut };
+module.exports = { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, stripTerminalMouseInputReports, isCopyShortcut };

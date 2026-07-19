@@ -1201,6 +1201,15 @@ body {
   display: block;
 }
 
+.terminal-wrapper .xterm {
+  cursor: default;
+}
+
+.terminal-wrapper .xterm.xterm-cursor-pointer,
+.terminal-wrapper .xterm .xterm-cursor-pointer {
+  cursor: pointer;
+}
+
 /* Session info bar — always visible below the terminal.
    IMPORTANT: this MUST be a fixed height (not min-height). The copy
    button is 22px tall, the text content is ~16px tall, so the bar's

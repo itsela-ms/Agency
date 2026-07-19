@@ -2,7 +2,7 @@ const { Terminal } = require('@xterm/xterm');
 const { FitAddon } = require('@xterm/addon-fit');
 const { WebLinksAddon } = require('@xterm/addon-web-links');
 const { deriveSessionState, getNewSessionAvailability, filterSessionsForSidebar } = require('./session-state');
-const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, isCopyShortcut } = require('./keyboard-shortcuts');
+const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, stripTerminalMouseInputReports, isCopyShortcut } = require('./keyboard-shortcuts');
 const { collectTerminalSearchMatches } = require('./terminal-search');
 const { resolveSidebarDragWidth } = require('./sidebar-resize');
 const { rememberRestorableClosedSession, peekRestorableClosedSession, forgetRestorableClosedSession } = require('./recently-closed');
@@ -144,28 +144,8 @@ function updateTerminalMouseTracking(entry, data) {
   });
 }
 
-function getTerminalCellFromMouse(entry, event) {
-  const screen = entry?.wrapper?.querySelector('.xterm-screen') || entry?.wrapper;
-  const terminal = entry?.terminal;
-  if (!screen || !terminal?.cols || !terminal?.rows) return null;
-  const rect = screen.getBoundingClientRect();
-  if (!rect.width || !rect.height) return null;
-  const col = Math.max(1, Math.min(terminal.cols, Math.floor(((event.clientX - rect.left) / rect.width) * terminal.cols) + 1));
-  const row = Math.max(1, Math.min(terminal.rows, Math.floor(((event.clientY - rect.top) / rect.height) * terminal.rows) + 1));
-  return { col, row };
-}
-
 function forwardTrackedMouseWheel(sessionId, entry, event) {
-  if (!entry?.mouseTrackingEnabled || !entry?.sgrMouseEnabled) return false;
-  if (event.ctrlKey || event.metaKey) return false;
-  if (!event.deltaY) return false;
-  const cell = getTerminalCellFromMouse(entry, event);
-  if (!cell) return false;
-  const button = event.deltaY < 0 ? 64 : 65;
-  event.preventDefault();
-  event.stopPropagation();
-  window.api.writePty(sessionId, `\x1b[<${button};${cell.col};${cell.row}M`);
-  return true;
+  return false;
 }
 
 // DOM elements
@@ -347,6 +327,49 @@ function announceLiveMessage(message) {
 function isBlockingModalOpen() {
   return !newSessionOptionsOverlay.classList.contains('hidden') ||
     !settingsOverlay.classList.contains('hidden');
+}
+
+function elementAcceptsTextInput(element) {
+  if (!element) return false;
+  if (element.isContentEditable) return true;
+  if (element.classList?.contains('xterm-helper-textarea')) return true;
+  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName);
+}
+
+function isStrandedTerminalFocusTarget(element) {
+  if (!element || element === document.body || element === document.documentElement) return false;
+  return element === terminalArea ||
+    element === terminalContainer ||
+    element.id === 'terminal-column' ||
+    element.id === 'terminal-main-row' ||
+    element.classList?.contains('terminal-wrapper') ||
+    element.classList?.contains('terminal-prompt-ghost');
+}
+
+function writePlainKeyToActiveTerminal(e) {
+  if (!activeSessionId || !terminals.has(activeSessionId)) return false;
+  if (isBlockingModalOpen()) return false;
+  if (e.ctrlKey || e.metaKey || e.altKey) return false;
+  if (elementAcceptsTextInput(document.activeElement)) return false;
+  if (!isStrandedTerminalFocusTarget(document.activeElement)) return false;
+  if (e.key === 'Tab') return false;
+  if (e.key === 'Shift') return false;
+
+  const entry = terminals.get(activeSessionId);
+  entry.terminal.focus();
+
+  let data = '';
+  if (e.key && e.key.length === 1) data = e.key;
+  else if (e.key === 'Enter') data = '\r';
+  else if (e.key === 'Backspace') data = '\x7f';
+  else return false;
+
+  e.preventDefault();
+  const sanitizedData = stripTerminalMouseInputReports(data);
+  if (!sanitizedData) return true;
+  handleSessionPromptInput(activeSessionId, sanitizedData);
+  window.api.writePty(activeSessionId, sanitizedData);
+  return true;
 }
 
 function getFocusableElements(root) {
@@ -3012,6 +3035,8 @@ async function newSession(launchOverrides = null) {
 }
 
 function createTerminal(sessionId) {
+  const isPrimaryMouseButton = (event) => event?.button === undefined || event.button === 0;
+
   const terminal = new Terminal({
     theme: XTERM_THEMES[currentTheme],
     fontFamily: "'Cascadia Code', 'Consolas', 'Courier New', monospace",
@@ -3021,21 +3046,38 @@ function createTerminal(sessionId) {
     cursorStyle: 'bar',
     scrollback: 10000,
     allowProposedApi: true,
-    scrollOnOutput: true
+    scrollOnOutput: true,
+    linkHandler: {
+      activate: (event, uri) => {
+        if (!isPrimaryMouseButton(event)) return;
+        if (terminal.hasSelection()) return;
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        terminal.clearSelection();
+        window.api.openExternal(uri);
+      },
+      allowNonHttpProtocols: false
+    }
   });
 
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
-  // IMPORTANT — DO NOT reintroduce a real handler here.
+  // IMPORTANT — terminal link opening is owned by DeepSky, not xterm's
+  // default browser-confirm fallback. xterm's default OSC-8 handler shows
+  // "might be dangerous" and then does not reliably open external browsers
+  // from Electron. We route both OSC-8 links and visible URL links through
+  // main-process shell.openExternal, which allows only http(s) URLs.
   //
-  // The embedded Copilot CLI emits OSC 8 hyperlinks and opens links itself when
-  // the user clicks/Ctrl-clicks them. If we also pass `(e, uri) => window.api.openExternal(uri)`
-  // (or any non-empty handler), every link opens TWICE — once by the CLI, once by us.
-  //
-  // WebLinksAddon must still be loaded so URLs are visually decorated and the cursor
-  // becomes a pointer on hover. With a no-op callback, the addon provides only the
-  // hover affordance and the CLI remains the sole opener.
-  terminal.loadAddon(new WebLinksAddon(() => {}));
+  // Keep WebLinksAddon loaded so non-OSC visible URLs are decorated and have
+  // the same open behavior as OSC-8 hyperlinks.
+  terminal.loadAddon(new WebLinksAddon((event, uri) => {
+    if (!isPrimaryMouseButton(event)) return;
+    if (terminal.hasSelection()) return;
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    terminal.clearSelection();
+    window.api.openExternal(uri);
+  }));
 
   const wrapper = document.createElement('div');
   wrapper.className = 'terminal-wrapper';
@@ -3045,9 +3087,19 @@ function createTerminal(sessionId) {
   terminal.open(wrapper);
   fitAddon.fit();
 
+  wrapper.addEventListener('pointerdown', () => {
+    requestAnimationFrame(() => {
+      if (activeSessionId === sessionId && terminals.has(sessionId)) {
+        terminal.focus();
+      }
+    });
+  });
+
   terminal.onData((data) => {
-    handleSessionPromptInput(sessionId, data);
-    window.api.writePty(sessionId, data);
+    const sanitizedData = stripTerminalMouseInputReports(data);
+    if (!sanitizedData) return;
+    handleSessionPromptInput(sessionId, sanitizedData);
+    window.api.writePty(sessionId, sanitizedData);
   });
   terminal.onResize(({ cols, rows }) => {
     trackedResizePty(sessionId, cols, rows);
@@ -3074,7 +3126,9 @@ function createTerminal(sessionId) {
     if (window._cachedSettings?.copyOnSelect === false) return;
     if (!terminal.hasSelection()) return;
     const selection = terminal.getSelection();
-    if (selection && selection.trim()) window.api.copyText(stripTerminalScrollbar(selection));
+    if (!selection || !selection.trim()) return;
+    const cleanedSelection = stripTerminalScrollbar(selection, terminal.cols);
+    if (cleanedSelection.trim()) window.api.copyText(cleanedSelection);
   };
   // onSelectionChange covers keyboard/Shift selection changes. A mouseup handler
   // is the reliable trigger for a plain click+drag: xterm finalizes the model
@@ -5225,6 +5279,8 @@ document.addEventListener('keydown', (e) => {
 
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
+  if (writePlainKeyToActiveTerminal(e)) return;
+
   const shortcutAction = getGlobalShortcutAction(e, {
     activeElement: document.activeElement,
     hasActiveSession: !!(activeSessionId && terminals.has(activeSessionId)),

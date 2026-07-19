@@ -44,49 +44,69 @@ describe('terminal link handling — regression guardrails', () => {
     expect(RENDERER_SRC).toMatch(/new WebLinksAddon\(/);
   });
 
-  it('passes a no-op handler to WebLinksAddon so links do not open twice', () => {
-    // The Copilot CLI emits OSC 8 hyperlinks and opens links itself on click.
-    // Any non-empty handler here re-introduces the double-open regression.
-    const noopForms = [
-      /new WebLinksAddon\(\s*\(\s*\)\s*=>\s*\{\s*\}\s*\)/,         // () => {}
-      /new WebLinksAddon\(\s*\(\s*\)\s*=>\s*undefined\s*\)/,       // () => undefined
-      /new WebLinksAddon\(\s*\(\s*_?e?\s*,?\s*_?uri?\s*\)\s*=>\s*\{\s*\}\s*\)/, // (e, uri) => {}
-    ];
-    const matched = noopForms.some(rx => rx.test(RENDERER_SRC));
-    expect(matched, 'WebLinksAddon must be constructed with a no-op handler').toBe(true);
+  it('routes OSC-8 terminal links through the safe DeepSky opener instead of xterm confirm', () => {
+    expect(RENDERER_SRC).toMatch(/const isPrimaryMouseButton = \(event\) => event\?\.button === undefined \|\| event\.button === 0/);
+    expect(RENDERER_SRC).toMatch(/linkHandler:\s*\{[\s\S]*?activate:\s*\(event,\s*uri\) => \{[\s\S]*?!isPrimaryMouseButton\(event\)[\s\S]*?terminal\.hasSelection\(\)[\s\S]*?terminal\.clearSelection\(\)[\s\S]*?window\.api\.openExternal\(uri\)/);
+    expect(RENDERER_SRC).toMatch(/allowNonHttpProtocols:\s*false/);
   });
 
-  it('does NOT call openExternal from inside the WebLinksAddon constructor', () => {
-    const lines = RENDERER_SRC.split(/\r?\n/);
-    const idx = lines.findIndex(l => l.includes('new WebLinksAddon('));
-    expect(idx, 'WebLinksAddon registration line not found').toBeGreaterThanOrEqual(0);
-    // Inspect the registration line plus the next 5 lines (in case the
-    // constructor is split across multiple lines). None of them may reference
-    // openExternal — that is the exact pattern that opens every link twice.
-    const block = lines.slice(idx, idx + 6).join('\n');
-    expect(block).not.toMatch(/openExternal/);
+  it('routes visible terminal URLs through the same safe DeepSky opener', () => {
+    expect(RENDERER_SRC).toMatch(/new WebLinksAddon\(\(event,\s*uri\) => \{[\s\S]*?!isPrimaryMouseButton\(event\)[\s\S]*?terminal\.hasSelection\(\)[\s\S]*?terminal\.clearSelection\(\)[\s\S]*?window\.api\.openExternal\(uri\)/);
+  });
+
+  it('does not own terminal link mouse events before xterm selection can run', () => {
+    expect(RENDERER_SRC).not.toMatch(/pendingLinkClick/);
+    expect(RENDERER_SRC).not.toMatch(/getTerminalLinkAtMouseEvent/);
+    expect(RENDERER_SRC).not.toMatch(/getTerminalBufferCoords/);
+    expect(RENDERER_SRC).not.toMatch(/setPointerCapture/);
+    expect(RENDERER_SRC).not.toMatch(/addEventListener\('mousedown',\s*\(event\).*getTerminalLink/s);
+    expect(RENDERER_SRC).not.toMatch(/addEventListener\('pointerdown',\s*\(event\).*getTerminalLink/s);
+  });
+
+  it('keeps the main-process external opener case-insensitive but http(s)-only', () => {
+    expect(MAIN_SRC).toMatch(/ipcMain\.handle\('shell:openExternal'[\s\S]*?new URL\(url\)/);
+    expect(MAIN_SRC).toMatch(/parsed\.protocol !== 'http:' && parsed\.protocol !== 'https:'/);
+    expect(MAIN_SRC).not.toMatch(/url\.startsWith\('http:\/\/'\)/);
   });
 
   it('keeps the explanatory comment so future cleanups do not revert the fix', () => {
-    // The comment must mention BOTH the consequence ("twice") and the rationale
-    // (the "CLI" is the sole opener, the addon stays for "cursor"/"hover").
+    // The comment must mention the xterm warning, http(s) safety, and the
+    // addon staying loaded for visible URL behavior.
     const idx = RENDERER_SRC.indexOf('new WebLinksAddon(');
     expect(idx).toBeGreaterThan(0);
     const before = RENDERER_SRC.slice(Math.max(0, idx - 800), idx);
-    expect(before, 'expected a comment warning about double-open above WebLinksAddon').toMatch(/twice/i);
-    expect(before, 'expected a comment about the cursor/hover affordance above WebLinksAddon').toMatch(/cursor|hover/i);
-    expect(before, 'expected a comment naming the CLI as the link opener above WebLinksAddon').toMatch(/CLI/);
+    expect(before, 'expected a comment warning about xterm dangerous-link prompt above WebLinksAddon').toMatch(/dangerous/i);
+    expect(before, 'expected a comment about http(s)-only shell.openExternal safety above WebLinksAddon').toMatch(/http\(s\)|shell\.openExternal/);
+    expect(before, 'expected a comment about visible URL behavior above WebLinksAddon').toMatch(/visible URL/);
   });
 });
 
 describe('terminal mouse handling — regression guardrails', () => {
-  it('strips mouse tracking for drag selection but forwards tracked wheel events to the PTY', () => {
+  it('strips mouse tracking for drag selection and never writes wheel mouse reports to the PTY', () => {
     expect(RENDERER_SRC).toMatch(/function updateTerminalMouseTracking\(entry,\s*data\)/);
     expect(RENDERER_SRC).toMatch(/function forwardTrackedMouseWheel\(sessionId,\s*entry,\s*event\)/);
-    expect(RENDERER_SRC).toMatch(/window\.api\.writePty\(sessionId,\s*`\\x1b\[<\$\{button\};\$\{cell\.col\};\$\{cell\.row\}M`\)/);
+    const wheelForwarder = RENDERER_SRC.match(/function forwardTrackedMouseWheel\(sessionId,\s*entry,\s*event\) \{([\s\S]*?)\n\}/)?.[1] || '';
+    expect(wheelForwarder).toMatch(/return false/);
+    expect(wheelForwarder).not.toMatch(/writePty/);
+    expect(wheelForwarder).not.toMatch(/\\x1b\[</);
     expect(RENDERER_SRC).toMatch(/terminal\.attachCustomWheelEventHandler\(\(event\) => \{[\s\S]*?return !forwardTrackedMouseWheel/);
     expect(RENDERER_SRC).not.toMatch(/wrapper\.addEventListener\('wheel'/);
     expect(RENDERER_SRC).toMatch(/updateTerminalMouseTracking\(entry,\s*data\);[\s\S]*?stripMouseTrackingSequences\(data\)/);
+    expect(RENDERER_SRC).toMatch(/stripTerminalMouseInputReports\b[\s\S]*require\(['"]\.\/keyboard-shortcuts['"]\)/);
+    expect(RENDERER_SRC).toMatch(/terminal\.onData\(\(data\) => \{[\s\S]*?const sanitizedData = stripTerminalMouseInputReports\(data\);[\s\S]*?if \(!sanitizedData\) return;[\s\S]*?window\.api\.writePty\(sessionId,\s*sanitizedData\)/);
+    expect(SHORTCUTS_SRC).toMatch(/function stripTerminalMouseInputReports\(data\)[\s\S]*?\\x1b\\\[<\\d\+;\\d\+;\\d\+\[mM\]/);
+  });
+
+  it('keeps terminal focus recoverable when xterm focus is stranded on app chrome', () => {
+    expect(RENDERER_SRC).toMatch(/function writePlainKeyToActiveTerminal\(e\)/);
+    expect(RENDERER_SRC).toMatch(/function isStrandedTerminalFocusTarget\(element\)/);
+    expect(RENDERER_SRC).toMatch(/element === document\.body \|\| element === document\.documentElement\) return false/);
+    expect(RENDERER_SRC).toMatch(/if \(e\.key === 'Tab'\) return false;[\s\S]*?if \(e\.key === 'Shift'\) return false;[\s\S]*?entry\.terminal\.focus\(\);[\s\S]*?window\.api\.writePty\(activeSessionId,\s*sanitizedData\)/);
+    expect(RENDERER_SRC).toMatch(/else return false;/);
+    expect(RENDERER_SRC).toMatch(/document\.addEventListener\('keydown',\s*\(e\) => \{\s*if \(writePlainKeyToActiveTerminal\(e\)\) return;/);
+    expect(RENDERER_SRC).toMatch(/wrapper\.addEventListener\('pointerdown'[\s\S]*?terminal\.focus\(\)/);
+    expect(STYLES_SRC).toMatch(/\.terminal-wrapper \.xterm\s*\{[\s\S]*?cursor:\s*default/);
+    expect(STYLES_SRC).toMatch(/\.terminal-wrapper \.xterm\.xterm-cursor-pointer/);
   });
 });
 
@@ -110,8 +130,8 @@ describe('shell:openExternal IPC — regression guardrails', () => {
     const handler = MAIN_SRC.match(/ipcMain\.handle\(\s*['"]shell:openExternal['"][\s\S]*?\}\s*\)\s*;/);
     expect(handler, 'shell:openExternal IPC handler not found').not.toBeNull();
     const block = handler[0];
-    expect(block).toMatch(/http:\/\//);
-    expect(block).toMatch(/https:\/\//);
+    expect(block).toMatch(/new URL\(url\)/);
+    expect(block).toMatch(/parsed\.protocol !== 'http:' && parsed\.protocol !== 'https:'/);
     expect(block).toMatch(/shell\.openExternal/);
   });
 
