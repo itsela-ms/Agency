@@ -4,6 +4,11 @@ All notable changes to DeepSky are documented here.
 
 ## [Unreleased]
 
+## [1.2.9-beta.2] - 2026-07-19
+
+### Changed
+- **Supersedes the first terminal-fixes beta** - reissued the validated 1.2.9 beta as `1.2.9-beta.2` so testers and auto-update users get a clean beta build after the earlier beta.1 validation issues.
+
 ## [1.2.9-beta.1] - 2026-07-19
 
 ### Fixed
