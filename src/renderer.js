@@ -1544,7 +1544,7 @@ aboutOpenBrochureBtn?.addEventListener('click', async () => {
     showToast({
       type: 'error',
       title: 'Could not open brochure',
-      body: result?.error || 'Could not open the local or online DeepSky brochure.',
+      body: result?.error || 'Could not open the online DeepSky brochure.',
     });
   }
 });
@@ -1682,9 +1682,7 @@ async function populateAboutSection() {
   if (aboutVersionTabEl) aboutVersionTabEl.textContent = `DeepSky v${version}`;
   if (aboutOpenBrochureBtn) {
     aboutOpenBrochureBtn.disabled = false;
-    aboutOpenBrochureBtn.title = brochureAvailability?.localAvailable
-      ? 'Open the local DeepSky brochure'
-      : 'Local brochure not found; opens the online DeepSky brochure instead';
+    aboutOpenBrochureBtn.title = 'Open the online DeepSky brochure';
   }
   renderAboutChangelog(changelog, version);
 

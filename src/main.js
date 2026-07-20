@@ -9,7 +9,6 @@ const {
   pickNotificationDisplay,
   parseLauncherArgs,
   resolveAgencyInfo,
-  resolveBrochureInfo,
   resolveCopilotInfo,
   resolveCopilotPath,
 } = require('./app-support');
@@ -678,24 +677,11 @@ if (!hasSingleInstanceLock) {
     return '';
   });
   ipcMain.handle('app:getBrochureAvailability', () => {
-    const brochureInfo = resolveBrochureInfo({
-      appPath: app.getAppPath(),
-      documentsPath: app.getPath('documents'),
-    });
-    return { available: true, localAvailable: brochureInfo.found };
+    return { available: true, localAvailable: false, url: DEEPSKY_BROCHURE_URL };
   });
   ipcMain.handle('app:openBrochure', async () => {
-    const brochureInfo = resolveBrochureInfo({
-      appPath: app.getAppPath(),
-      documentsPath: app.getPath('documents'),
-    });
-    if (!brochureInfo.found || !brochureInfo.path) {
-      await shell.openExternal(DEEPSKY_BROCHURE_URL);
-      return { ok: true, fallback: 'online' };
-    }
-
-    const error = await shell.openPath(brochureInfo.path);
-    return error ? { ok: false, error } : { ok: true };
+    await shell.openExternal(DEEPSKY_BROCHURE_URL);
+    return { ok: true, target: 'online' };
   });
 
   // Auto-notify on session exit

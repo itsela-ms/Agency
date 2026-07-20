@@ -145,12 +145,15 @@ describe('shell:openExternal IPC — regression guardrails', () => {
     expect(RENDERER_SRC).not.toMatch(/msteams:/);
   });
 
-  it('keeps About brochure action useful when the local brochure file is missing', () => {
+  it('always opens the online brochure instead of local user files', () => {
     expect(MAIN_SRC).toMatch(/const DEEPSKY_BROCHURE_URL = 'https:\/\/itsela-ms\.github\.io\/DeepSky\/deepsky-brochure\.html'/);
-    expect(MAIN_SRC).toMatch(/return \{ available: true,\s*localAvailable: brochureInfo\.found \}/);
-    expect(MAIN_SRC).toMatch(/shell\.openExternal\(DEEPSKY_BROCHURE_URL\)/);
+    expect(MAIN_SRC).toMatch(/return \{ available: true,\s*localAvailable: false,\s*url: DEEPSKY_BROCHURE_URL \}/);
+    const brochureHandler = MAIN_SRC.match(/ipcMain\.handle\('app:openBrochure'[\s\S]*?\n  \}\);/);
+    expect(brochureHandler, 'app:openBrochure IPC handler not found').not.toBeNull();
+    expect(brochureHandler[0]).toMatch(/shell\.openExternal\(DEEPSKY_BROCHURE_URL\)/);
+    expect(brochureHandler[0]).not.toMatch(/shell\.openPath/);
     expect(RENDERER_SRC).toMatch(/aboutOpenBrochureBtn\.disabled = false/);
-    expect(RENDERER_SRC).toMatch(/Local brochure not found; opens the online DeepSky brochure instead/);
+    expect(RENDERER_SRC).toMatch(/Open the online DeepSky brochure/);
   });
 
   it('filters About changelog prereleases based on the running app version', () => {
