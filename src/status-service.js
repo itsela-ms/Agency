@@ -633,7 +633,10 @@ class StatusService {
 
   /**
    * Extract key timeline events from events.jsonl.
-   * Returns array of { time, type, text } (newest first, max 20).
+   * Returns user prompts and meaningful assistant results as
+   * { time, type, text } (newest first, max 20). Internal session lifecycle
+   * events (resume/start), plan mutations, and sub-agent bookkeeping are
+   * intentionally hidden from the side panel.
    */
   async _readTimeline(sessionDir) {
     const eventsPath = path.join(sessionDir, 'events.jsonl');
@@ -644,8 +647,6 @@ class StatusService {
     return new Promise((resolve) => {
       const stream = fs.createReadStream(eventsPath, { encoding: 'utf8' });
       const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
-      let userMsgCount = 0;
-
       rl.on('line', (line) => {
         try {
           const event = JSON.parse(line);
@@ -653,28 +654,17 @@ class StatusService {
           if (!ts) return;
 
           switch (event.type) {
-            case 'session.start':
-              events.push({ time: ts, type: 'start', text: 'Session started' });
-              break;
-            case 'session.resume':
-              events.push({ time: ts, type: 'resume', text: 'Session resumed' });
-              break;
             case 'user.message':
-              userMsgCount++;
-              if (userMsgCount <= 10) {
-                const content = (event.data?.content || '').trim().split('\n')[0];
-                const preview = content.length > 60 ? content.substring(0, 57) + '...' : content;
-                events.push({ time: ts, type: 'user', text: preview });
+              {
+                const text = this._timelinePreview(event.data?.content || event.data?.transformedContent || '');
+                if (text) events.push({ time: ts, type: 'user', text });
               }
               break;
-            case 'session.plan_changed':
-              events.push({ time: ts, type: 'plan', text: `Plan ${event.data?.operation || 'updated'}` });
-              break;
-            case 'subagent.started':
-              events.push({ time: ts, type: 'agent', text: `Sub-agent started: ${event.data?.description || 'task'}` });
-              break;
-            case 'subagent.completed':
-              events.push({ time: ts, type: 'agent', text: 'Sub-agent completed' });
+            case 'assistant.message':
+              {
+                const text = this._assistantTimelineResult(event.data?.content || '');
+                if (text) events.push({ time: ts, type: 'assistant', text });
+              }
               break;
           }
         } catch { /* skip */ }
@@ -686,6 +676,33 @@ class StatusService {
       });
       rl.on('error', () => resolve([]));
     });
+  }
+
+  _timelinePreview(content, maxLength = 80) {
+    const text = String(content || '')
+      .replace(/<current_datetime>[\s\S]*?<\/current_datetime>/g, '')
+      .replace(/<system_reminder>[\s\S]*?<\/system_reminder>/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!text) return '';
+
+    const firstLine = text.split(/\r?\n/)[0].trim();
+    return firstLine.length > maxLength ? `${firstLine.slice(0, maxLength - 3).trimEnd()}...` : firstLine;
+  }
+
+  _assistantTimelineResult(content) {
+    const text = this._timelinePreview(content, 90);
+    if (!text) return '';
+
+    if (/^(done|fixed|created|added|updated|published|released|shipped|validated|completed|passed|ready|blocked)\b/i.test(text)) {
+      return text;
+    }
+
+    if (/\b(build|tests?|validation|suite|release|assets?|ci)\b.{0,80}\b(pass(?:ed|es)?|clean|green|ready|complete(?:d)?)\b/i.test(text)) {
+      return text;
+    }
+
+    return '';
   }
 }
 

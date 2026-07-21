@@ -87,6 +87,78 @@ async function writeFileMutationEvent(sessionId, {
   await fs.promises.appendFile(path.join(sessionDir, 'events.jsonl'), `${JSON.stringify(event)}\n`, 'utf8');
 }
 
+async function writeEvents(sessionId, events) {
+  const sessionDir = path.join(tmpDir, sessionId);
+  await fs.promises.mkdir(sessionDir, { recursive: true });
+  const lines = events.map(event => JSON.stringify(event)).join('\n') + '\n';
+  await fs.promises.writeFile(path.join(sessionDir, 'events.jsonl'), lines, 'utf8');
+}
+
+describe('StatusService timeline filtering', () => {
+  it('hides internal lifecycle, plan, and sub-agent metadata from the side-panel timeline', async () => {
+    await writeEvents('timeline-noise', [
+      { type: 'session.start', timestamp: '2026-07-21T06:00:00.000Z' },
+      { type: 'session.resume', timestamp: '2026-07-21T06:01:00.000Z' },
+      { type: 'session.plan_changed', timestamp: '2026-07-21T06:02:00.000Z', data: { operation: 'updated' } },
+      { type: 'subagent.started', timestamp: '2026-07-21T06:03:00.000Z', data: { description: 'QA pass' } },
+      { type: 'subagent.completed', timestamp: '2026-07-21T06:04:00.000Z' },
+    ]);
+
+    const status = await svc.getSessionStatus('timeline-noise');
+
+    expect(status.timeline).toEqual([]);
+  });
+
+  it('keeps user prompts and meaningful assistant results in the side-panel timeline', async () => {
+    await writeEvents('timeline-signal', [
+      {
+        type: 'user.message',
+        timestamp: '2026-07-21T06:00:00.000Z',
+        data: { content: '<current_datetime>ignore</current_datetime>\n\nCan you fix scrolling?' },
+      },
+      {
+        type: 'assistant.message',
+        timestamp: '2026-07-21T06:01:00.000Z',
+        data: { content: 'I’ll inspect the scroll path first.' },
+      },
+      {
+        type: 'assistant.message',
+        timestamp: '2026-07-21T06:02:00.000Z',
+        data: { content: 'Fixed locally and validated in the running app.' },
+      },
+      {
+        type: 'user.message',
+        timestamp: '2026-07-21T06:03:00.000Z',
+        data: { transformedContent: '<system_reminder>noise</system_reminder>\n\nCreate UTs for this issue' },
+      },
+    ]);
+
+    const status = await svc.getSessionStatus('timeline-signal');
+
+    expect(status.timeline).toEqual([
+      { time: '2026-07-21T06:03:00.000Z', type: 'user', text: 'Create UTs for this issue' },
+      { time: '2026-07-21T06:02:00.000Z', type: 'assistant', text: 'Fixed locally and validated in the running app.' },
+      { time: '2026-07-21T06:00:00.000Z', type: 'user', text: 'Can you fix scrolling?' },
+    ]);
+  });
+
+  it('truncates long user prompts in timeline entries', async () => {
+    await writeEvents('timeline-long-prompt', [
+      {
+        type: 'user.message',
+        timestamp: '2026-07-21T06:00:00.000Z',
+        data: { content: 'x'.repeat(120) },
+      },
+    ]);
+
+    const status = await svc.getSessionStatus('timeline-long-prompt');
+
+    expect(status.timeline).toHaveLength(1);
+    expect(status.timeline[0].text).toHaveLength(80);
+    expect(status.timeline[0].text.endsWith('...')).toBe(true);
+  });
+});
+
 describe('StatusService next step summaries', () => {
   it('keeps concise checkbox steps unchanged', async () => {
     await writePlan('short-steps', [

@@ -74,7 +74,7 @@ function isCopyShortcut(e) {
 }
 
 /**
- * Strips the Copilot CLI's vertical scrollbar from copied terminal text.
+ * Strips terminal-only decorations from copied Copilot CLI text.
  *
  * The embedded CLI paints a scrollbar as a column of U+2503 (BOX DRAWINGS
  * HEAVY VERTICAL, `┃`) glyphs in the rightmost column of the transcript. In
@@ -85,7 +85,11 @@ function isCopyShortcut(e) {
  * padding whitespace before it — from each line. ASCII pipes are stripped only
  * when they sit at the terminal's right edge, which is where the scrollbar is
  * painted. Without the terminal width, ASCII pipes are left untouched because
- * they are too ambiguous.
+ * they are too ambiguous. The CLI can also paint copied UI chrome: left-edge
+ * prompt/status gutters (`❯`, `✗`, `●`), box-tree tool gutters (`│`, `└`),
+ * full-width block separators, command markers, and right-aligned timestamps.
+ * Strip those only when the selection has multiline terminal-chrome shape so
+ * ordinary single-line bullets or user content are preserved.
  *
  * @param {string} text - raw selection text from xterm / DOM selection.
  * @param {number} terminalColumns - terminal width used to identify the right-edge scrollbar column.
@@ -96,11 +100,35 @@ function stripTerminalScrollbar(text, terminalColumns = 0) {
   const rightEdgeColumn = Number.isFinite(terminalColumns) && terminalColumns > 0
     ? terminalColumns - 1
     : -1;
+  const segments = text.split(/(\r\n|\r|\n)/);
+  const textSegments = segments.filter((_, index) => index % 2 === 0);
+  const nonEmptyLines = textSegments.filter(line => line && line.trim());
+  const chromeDividerLines = nonEmptyLines.filter(line => /^[ \t]*[\u2580\u2584\u2500\u2501]{20,}[ \t]*$/.test(line));
+  const leftGutterLines = nonEmptyLines.filter(line => /^[ \t]*[\u276f\u2717\u25cf](?:[ \t]|$)/.test(line));
+  const treeGutterLines = nonEmptyLines.filter(line => /^[ \t]*[\u2502\u2514\u251c\u250c](?:[ \t]|$)/.test(line));
+  const timestampLines = nonEmptyLines.filter(line => /[ \t]{8,}\d{1,2}:\d{2}$/.test(line));
+  const shouldStripTerminalChrome = nonEmptyLines.length >= 2 &&
+    (chromeDividerLines.length > 0 || leftGutterLines.length >= 2 || treeGutterLines.length >= 2 || timestampLines.length > 0);
+  const shouldStripTreeChrome = shouldStripTerminalChrome && treeGutterLines.length >= 2;
 
-  return text.split(/(\r\n|\r|\n)/).map((part, index) => {
+  return segments.map((part, index) => {
     if (index % 2 === 1) return part;
     const body = part || '';
-    let cleaned = body.replace(/[ \t]*\u2503[ \t]*$/, '');
+    if (shouldStripTerminalChrome && /^[ \t]*[\u2580\u2584\u2500\u2501]{20,}[ \t]*$/.test(body)) {
+      return '';
+    }
+    let cleaned = shouldStripTerminalChrome
+      ? body
+          .replace(/^[ \t]*[\u276f\u2717\u25cf][ \t]?/, '')
+          .replace(/^[ \t]*[\u2502\u2514\u251c\u250c][ \t]?/, '')
+          .replace(/[ \t]{8,}\d{1,2}:\d{2}$/, '')
+      : body;
+    if (shouldStripTreeChrome) {
+      cleaned = cleaned
+        .replace(/^[ \t]+(?=\S)/, '')
+        .replace(/^[ \t]*\$\s+/, '');
+    }
+    cleaned = cleaned.replace(/[ \t]*\u2503[ \t]*$/, '');
     const pipeIndex = cleaned.indexOf('|');
     if (
       pipeIndex >= 0 &&
@@ -125,10 +153,11 @@ function stripTerminalScrollbar(text, terminalColumns = 0) {
  * embedded Copilot CLI enables mouse reporting, so without this a plain drag
  * never selects (only Shift+drag does) and copy-on-select / Ctrl+C have nothing
  * to copy. By swallowing the mode-set sequences here, `areMouseEventsActive`
- * stays false, xterm keeps ownership of the mouse, and plain-drag selection +
- * copy work like a normal terminal. Wheel reporting is intentionally disabled:
- * forwarding mouse report bytes to the PTY can leak those bytes into the prompt
- * when focus/input state gets out of sync.
+ * stays false, xterm keeps ownership of button/drag selection, and plain-drag
+ * selection + copy work like a normal terminal. The renderer separately tracks
+ * the swallowed mode state and forwards wheel reports only while that state is
+ * active, so scroll still reaches the CLI without xterm-generated mouse bytes
+ * leaking into prompt input.
  *
  * Only the X10/VT200/button/any-event mouse REPORTING modes (1000–1003) are
  * removed, along with mouse encoding modes (1005/1006/1015/1016). Alt-screen

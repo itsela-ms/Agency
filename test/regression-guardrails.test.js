@@ -27,6 +27,7 @@ import { join } from 'node:path';
 const ROOT = join(__dirname, '..');
 const RENDERER_SRC = readFileSync(join(ROOT, 'src', 'renderer.js'), 'utf8');
 const SHORTCUTS_SRC = readFileSync(join(ROOT, 'src', 'keyboard-shortcuts.js'), 'utf8');
+const TERMINAL_WHEEL_SRC = readFileSync(join(ROOT, 'src', 'terminal-wheel.js'), 'utf8');
 const MAIN_SRC = readFileSync(join(ROOT, 'src', 'main.js'), 'utf8');
 const PRELOAD_SRC = readFileSync(join(ROOT, 'src', 'preload.js'), 'utf8');
 const PTY_MANAGER_SRC = readFileSync(join(ROOT, 'src', 'pty-manager.js'), 'utf8');
@@ -82,19 +83,28 @@ describe('terminal link handling — regression guardrails', () => {
 });
 
 describe('terminal mouse handling — regression guardrails', () => {
-  it('strips mouse tracking for drag selection and never writes wheel mouse reports to the PTY', () => {
-    expect(RENDERER_SRC).toMatch(/function updateTerminalMouseTracking\(entry,\s*data\)/);
+  it('strips mouse tracking for drag selection and forwards wheel only under tracked mouse mode', () => {
+    expect(RENDERER_SRC).toMatch(/require\(['"]\.\/terminal-wheel['"]\)/);
+    expect(TERMINAL_WHEEL_SRC).toMatch(/function updateTerminalMouseTracking\(entry,\s*data\)/);
     expect(RENDERER_SRC).toMatch(/function forwardTrackedMouseWheel\(sessionId,\s*entry,\s*event\)/);
     const wheelForwarder = RENDERER_SRC.match(/function forwardTrackedMouseWheel\(sessionId,\s*entry,\s*event\) \{([\s\S]*?)\n\}/)?.[1] || '';
-    expect(wheelForwarder).toMatch(/return false/);
-    expect(wheelForwarder).not.toMatch(/writePty/);
-    expect(wheelForwarder).not.toMatch(/\\x1b\[</);
+    expect(wheelForwarder).toMatch(/getWheelMouseReport\(event,\s*entry\)/);
+    expect(wheelForwarder).toMatch(/if \(!report\) return false/);
+    expect(wheelForwarder).toMatch(/window\.api\.writePty\(sessionId,\s*report\)/);
+    expect(TERMINAL_WHEEL_SRC).toMatch(/function getWheelMouseReport\(event,\s*entry\)[\s\S]*?!entry\?\.mouseTrackingEnabled[\s\S]*?entry\.sgrMouseEnabled[\s\S]*?\\x1b\[<\$\{buttonCode\};\$\{coords\.col\};\$\{coords\.row\}M/);
     expect(RENDERER_SRC).toMatch(/terminal\.attachCustomWheelEventHandler\(\(event\) => \{[\s\S]*?return !forwardTrackedMouseWheel/);
+    expect(RENDERER_SRC).toMatch(/function shouldRouteTerminalWheel\(event\)[\s\S]*?isBlockingModalOpen\(\)[\s\S]*?terminalColumn\?\.contains\(event\.target\) \|\| isPointInsideElement\(event,\s*terminalColumn\)/);
+    expect(TERMINAL_WHEEL_SRC).toMatch(/function scrollTerminalViewport\(entry,\s*wholeLines,\s*pixelDelta\)[\s\S]*?terminal\.scrollLines\(wholeLines\)[\s\S]*?viewport\.scrollTop \+= pixelDelta/);
+    expect(TERMINAL_WHEEL_SRC).toMatch(/function getTerminalWheelPagingSequence\(deltaLines\)[\s\S]*?deltaLines < 0 \? '\\x1b\[5~' : '\\x1b\[6~'/);
+    expect(RENDERER_SRC).toMatch(/function handleTerminalScrollbackWheel\(event,\s*entry\)[\s\S]*?event\.ctrlKey \|\| event\.metaKey[\s\S]*?event\.preventDefault\(\)[\s\S]*?event\.stopPropagation\(\)[\s\S]*?applyZoom\(event\.deltaY < 0 \? 'in' : 'out'\)[\s\S]*?forwardTrackedMouseWheel\(activeSessionId,\s*entry,\s*event\)[\s\S]*?window\.api\.writePty\(activeSessionId,\s*getTerminalWheelPagingSequence\(deltaLines\)\)[\s\S]*?entry\.wheelScrollRemainder[\s\S]*?scrollTerminalViewport\(entry,\s*wholeLines,\s*getTerminalWheelDeltaPixels\(event,\s*terminal\)\)/);
     expect(RENDERER_SRC).not.toMatch(/wrapper\.addEventListener\('wheel'/);
+    expect(RENDERER_SRC).not.toMatch(/terminalColumn\?\.addEventListener\('wheel'/);
+    expect(RENDERER_SRC).toMatch(/document\.addEventListener\('wheel',\s*\(e\) => \{[\s\S]*?if \(shouldRouteTerminalWheel\(e\)\)[\s\S]*?handleTerminalScrollbackWheel\(e,\s*activeSessionId \? terminals\.get\(activeSessionId\) : null\)[\s\S]*?\},\s*\{ capture: true,\s*passive: false \}/);
     expect(RENDERER_SRC).toMatch(/updateTerminalMouseTracking\(entry,\s*data\);[\s\S]*?stripMouseTrackingSequences\(data\)/);
     expect(RENDERER_SRC).toMatch(/stripTerminalMouseInputReports\b[\s\S]*require\(['"]\.\/keyboard-shortcuts['"]\)/);
     expect(RENDERER_SRC).toMatch(/terminal\.onData\(\(data\) => \{[\s\S]*?const sanitizedData = stripTerminalMouseInputReports\(data\);[\s\S]*?if \(!sanitizedData\) return;[\s\S]*?window\.api\.writePty\(sessionId,\s*sanitizedData\)/);
     expect(SHORTCUTS_SRC).toMatch(/function stripTerminalMouseInputReports\(data\)[\s\S]*?\\x1b\\\[<\\d\+;\\d\+;\\d\+\[mM\]/);
+    expect(SHORTCUTS_SRC).toMatch(/forwards wheel reports only while that state is\s*\*\s*active/);
   });
 
   it('keeps terminal focus recoverable when xterm focus is stranded on app chrome', () => {

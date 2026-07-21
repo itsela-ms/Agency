@@ -20,6 +20,15 @@ const {
 } = require('./history-limit');
 const { getRecentChangelogReleases } = require('./changelog-utils');
 const { createStartupLoadingController } = require('./startup-loading');
+const {
+  getTerminalWheelDeltaLines,
+  getTerminalWheelDeltaPixels,
+  getTerminalWheelPagingSequence,
+  getWheelMouseReport,
+  isPointInsideElement,
+  scrollTerminalViewport,
+  updateTerminalMouseTracking,
+} = require('./terminal-wheel');
 
 // State
 const terminals = new Map();
@@ -127,25 +136,51 @@ const XTERM_THEMES = {
   }
 };
 
-const MOUSE_REPORT_MODES = new Set(['1000', '1001', '1002', '1003']);
-const SGR_MOUSE_MODE = '1006';
-
-function updateTerminalMouseTracking(entry, data) {
-  if (!entry || typeof data !== 'string' || data.indexOf('\x1b[?') === -1) return;
-  data.replace(/\x1b\[\?([0-9;]+)([hl])/g, (match, params, suffix) => {
-    const modes = params.split(';').filter(Boolean);
-    if (modes.some(mode => MOUSE_REPORT_MODES.has(mode))) {
-      entry.mouseTrackingEnabled = suffix === 'h';
-    }
-    if (modes.includes(SGR_MOUSE_MODE)) {
-      entry.sgrMouseEnabled = suffix === 'h';
-    }
-    return match;
-  });
+function forwardTrackedMouseWheel(sessionId, entry, event) {
+  const report = getWheelMouseReport(event, entry);
+  if (!report) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  window.api.writePty(sessionId, report);
+  return true;
 }
 
-function forwardTrackedMouseWheel(sessionId, entry, event) {
-  return false;
+function shouldRouteTerminalWheel(event) {
+  if (isBlockingModalOpen()) return false;
+  if (!activeSessionId || !terminals.has(activeSessionId)) return false;
+  if (terminalArea?.style?.display === 'none') return false;
+  if (sessionSearch?.contains(event.target)) return false;
+  return terminalColumn?.contains(event.target) || isPointInsideElement(event, terminalColumn);
+}
+
+function handleTerminalScrollbackWheel(event, entry) {
+  const terminal = entry?.terminal;
+  if (!terminal) return;
+  if (event.ctrlKey || event.metaKey) {
+    event.preventDefault();
+    event.stopPropagation();
+    applyZoom(event.deltaY < 0 ? 'in' : 'out');
+    return;
+  }
+  if (forwardTrackedMouseWheel(activeSessionId, entry, event)) return;
+  const deltaLines = getTerminalWheelDeltaLines(event, terminal);
+  if (!deltaLines) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  // Copilot CLI owns most of the visible screen. When it doesn't advertise
+  // mouse tracking (or the enable sequence was missed during renderer attach),
+  // xterm scrollback is usually inert; send terminal paging keys so the CLI
+  // scrolls its own transcript instead of doing nothing.
+  window.api.writePty(activeSessionId, getTerminalWheelPagingSequence(deltaLines));
+
+  const accumulatedLines = (entry.wheelScrollRemainder || 0) + deltaLines;
+  const wholeLines = accumulatedLines > 0
+    ? Math.floor(accumulatedLines)
+    : Math.ceil(accumulatedLines);
+  entry.wheelScrollRemainder = accumulatedLines - wholeLines;
+  scrollTerminalViewport(entry, wholeLines, getTerminalWheelDeltaPixels(event, terminal));
 }
 
 // DOM elements
@@ -162,6 +197,7 @@ const sessionSearchPrev = document.getElementById('session-search-prev');
 const sessionSearchNext = document.getElementById('session-search-next');
 const sessionSearchClose = document.getElementById('session-search-close');
 const terminalTabs = document.getElementById('terminal-tabs');
+const terminalColumn = document.getElementById('terminal-column');
 const tabsScrollArea = terminalTabs.querySelector('.tabs-scroll-area');
 const tabScrollLeft = terminalTabs.querySelector('.tab-scroll-left');
 const tabScrollRight = terminalTabs.querySelector('.tab-scroll-right');
@@ -4097,8 +4133,7 @@ async function updateStatusPanel(sessionId) {
   // Timeline
   if (status.timeline.length > 0) {
     const DOT_COLORS = {
-      start: 'var(--text-dim)', resume: 'var(--text-dim)', user: 'var(--accent)',
-      plan: 'var(--yellow)', agent: 'var(--mauve)',
+      user: 'var(--accent)', assistant: 'var(--green)',
     };
     const timelineHtml = status.timeline.map(ev => {
       const time = new Date(ev.time);
@@ -5246,12 +5281,20 @@ async function applyZoom(direction) {
   }, 100);
 }
 
-// Ctrl+Scroll zoom
+// Terminal wheel handling lives at the document capture layer because xterm's
+// helper textarea and DeepSky's prompt/info bar can take focus/targeting away
+// from the per-session wrapper. Route only when the pointer is visually over
+// the terminal column so sidebars, status panels, modals, and settings keep
+// their native scroll behavior.
 document.addEventListener('wheel', (e) => {
+  if (shouldRouteTerminalWheel(e)) {
+    handleTerminalScrollbackWheel(e, activeSessionId ? terminals.get(activeSessionId) : null);
+    return;
+  }
   if (!(e.ctrlKey || e.metaKey)) return;
   e.preventDefault();
   applyZoom(e.deltaY < 0 ? 'in' : 'out');
-}, { passive: false });
+}, { capture: true, passive: false });
 
 // Global copy for regular DOM UI (status panel, sidebar, commits list, etc.).
 // The app uses a custom Electron menu without the native Copy role so xterm can

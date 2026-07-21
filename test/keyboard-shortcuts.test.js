@@ -321,6 +321,63 @@ describe('createTerminalKeyHandler', () => {
       expect(stripTerminalScrollbar('\u2503 gutter kept')).toBe('\u2503 gutter kept');
     });
 
+    it('removes repeated Copilot CLI left status gutter glyphs from copied multiline selections', () => {
+      expect(stripTerminalScrollbar('\u2717 failed step\n\u25cf running step')).toBe('failed step\nrunning step');
+      expect(stripTerminalScrollbar('\u25cf first line\n\u25cf second line\n\u25cf third line')).toBe('first line\nsecond line\nthird line');
+      expect(stripTerminalScrollbar('\u2717 failed        \u2503\n\u25cf running       \u2503')).toBe('failed\nrunning');
+    });
+
+    it('removes copied terminal chrome from multiline DeepSky transcript selections', () => {
+      const copied = [
+        '  \u276f Copy contains the left most character of each line                                                                                                                                               10:29',
+        ` ${'\u2580'.repeat(180)}`,
+        ' \u25cf That\u2019s another rendered terminal gutter leaking into selection.',
+        '',
+        ' \u25cf Todo added Fixing copied left-gutter glyphs',
+      ].join('\n');
+
+      expect(stripTerminalScrollbar(copied)).toBe([
+        'Copy contains the left most character of each line',
+        '',
+        'That\u2019s another rendered terminal gutter leaking into selection.',
+        '',
+        'Todo added Fixing copied left-gutter glyphs',
+      ].join('\n'));
+    });
+
+    it('removes copied box-tree tool gutters and command markers from multiline selections', () => {
+      const copied = [
+        'Rubber-duck(claude-opus-4.8) QA width copy IO',
+        '   \u2502 Shell Find copyText and clipboard usages 22 lines…',
+        '   \u2502   cd C:\\Users\\itsela\\source\\DeepSky; git --no-pager grep -n "copyText\\|clipboard" -- src/ 2>&1 | Select-Object -First 40',
+        '   \u2514 Shell Probe off-by-one and heavy glyph behavior 5 lines…',
+        '       cd C:\\Users\\itsela\\source\\DeepSky; node -e "console.log(1)"',
+        '',
+        ' $ Shell Run final DeepSky validations 91 lines…',
+        '   Set-Location C:\\Users\\itsela\\source\\DeepSky; npm test',
+      ].join('\n');
+
+      expect(stripTerminalScrollbar(copied)).toBe([
+        'Rubber-duck(claude-opus-4.8) QA width copy IO',
+        'Shell Find copyText and clipboard usages 22 lines…',
+        'cd C:\\Users\\itsela\\source\\DeepSky; git --no-pager grep -n "copyText\\|clipboard" -- src/ 2>&1 | Select-Object -First 40',
+        'Shell Probe off-by-one and heavy glyph behavior 5 lines…',
+        'cd C:\\Users\\itsela\\source\\DeepSky; node -e "console.log(1)"',
+        '',
+        'Shell Run final DeepSky validations 91 lines…',
+        'Set-Location C:\\Users\\itsela\\source\\DeepSky; npm test',
+      ].join('\n'));
+    });
+
+    it('preserves single-line bullets and mixed normal content at the left edge', () => {
+      expect(stripTerminalScrollbar('\u25cf keep this bullet')).toBe('\u25cf keep this bullet');
+      expect(stripTerminalScrollbar('\u2717 keep this single failure marker')).toBe('\u2717 keep this single failure marker');
+      expect(stripTerminalScrollbar('\u276f keep this single prompt marker')).toBe('\u276f keep this single prompt marker');
+      expect(stripTerminalScrollbar('\u25cf bullet item\nnormal line')).toBe('\u25cf bullet item\nnormal line');
+      expect(stripTerminalScrollbar('normal line\n\u25cf bullet item')).toBe('normal line\n\u25cf bullet item');
+      expect(stripTerminalScrollbar('\u2502 keep this single box line')).toBe('\u2502 keep this single box line');
+    });
+
     it('leaves ordinary text and ascii pipes untouched', () => {
       expect(stripTerminalScrollbar('no bar here')).toBe('no bar here');
       expect(stripTerminalScrollbar('a | b')).toBe('a | b');
