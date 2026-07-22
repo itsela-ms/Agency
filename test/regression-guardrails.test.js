@@ -125,6 +125,11 @@ describe('status panel resource rendering — regression guardrails', () => {
     expect(RENDERER_SRC).toMatch(/replace\(\/"\/g,\s*['"]&quot;['"]\)\.replace\(\/'\/g,\s*['"]&#39;['"]\)/);
   });
 
+  it('shows truncated timeline prompts with escaped full prompt hover text', () => {
+    expect(RENDERER_SRC).toMatch(/const title = ev\.fullText && ev\.fullText !== ev\.text \? ` title="\$\{escapeHtml\(ev\.fullText\)\}"` : ''/);
+    expect(RENDERER_SRC).toMatch(/<span class="status-timeline-text"\$\{title\}>\$\{escapeHtml\(ev\.text\)\}<\/span>/);
+  });
+
   it('renders work item titles as truncated details with full text in the hover title', () => {
     expect(RENDERER_SRC).toMatch(/status-resource-title/);
     expect(RENDERER_SRC).toMatch(/status-resource-type/);

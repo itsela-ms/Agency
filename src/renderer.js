@@ -4139,10 +4139,11 @@ async function updateStatusPanel(sessionId) {
       const time = new Date(ev.time);
       const hhmm = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`;
       const color = DOT_COLORS[ev.type] || 'var(--text-dim)';
+      const title = ev.fullText && ev.fullText !== ev.text ? ` title="${escapeHtml(ev.fullText)}"` : '';
       return `<div class="status-timeline-item">
         <span class="status-timeline-time">${hhmm}</span>
         <div class="status-timeline-dot" style="background:${color}"></div>
-        <span class="status-timeline-text">${escapeHtml(ev.text)}</span>
+        <span class="status-timeline-text"${title}>${escapeHtml(ev.text)}</span>
       </div>`;
     }).join('');
     html += renderStatusSection('timeline', '🕐', 'Timeline', null, timelineHtml);

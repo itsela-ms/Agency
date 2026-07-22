@@ -4,6 +4,16 @@ All notable changes to DeepSky are documented here.
 
 ## [Unreleased]
 
+## [1.2.10] - 2026-07-22
+
+### Fixed
+- **Copilot CLI transcript scrolling works again** - terminal wheel input now reaches the CLI-owned transcript, with a PageUp/PageDown fallback when mouse tracking is unavailable or missed.
+- **Copied terminal text is cleaner** - multiline copy removes rendered terminal chrome such as gutters, tree guides, block dividers, timestamps, command markers, and scrollbar artifacts while preserving normal user content.
+- **Status timeline focuses on signal** - the Session Status timeline now hides internal lifecycle metadata such as session resume, plan updates, and sub-agent bookkeeping, keeping user prompts and key assistant results; truncated prompt entries show the full prompt on hover.
+
+### Added
+- **Terminal scroll regression tests** - extracted terminal wheel helpers and added unit coverage for mouse reports, paging fallback, coordinate math, wheel deltas, and viewport fallback behavior.
+
 ## [1.2.10-beta.1] - 2026-07-21
 
 ### Fixed

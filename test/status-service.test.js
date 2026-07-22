@@ -136,18 +136,19 @@ describe('StatusService timeline filtering', () => {
     const status = await svc.getSessionStatus('timeline-signal');
 
     expect(status.timeline).toEqual([
-      { time: '2026-07-21T06:03:00.000Z', type: 'user', text: 'Create UTs for this issue' },
+      { time: '2026-07-21T06:03:00.000Z', type: 'user', text: 'Create UTs for this issue', fullText: 'Create UTs for this issue' },
       { time: '2026-07-21T06:02:00.000Z', type: 'assistant', text: 'Fixed locally and validated in the running app.' },
-      { time: '2026-07-21T06:00:00.000Z', type: 'user', text: 'Can you fix scrolling?' },
+      { time: '2026-07-21T06:00:00.000Z', type: 'user', text: 'Can you fix scrolling?', fullText: 'Can you fix scrolling?' },
     ]);
   });
 
-  it('truncates long user prompts in timeline entries', async () => {
+  it('truncates long user prompts in timeline entries while preserving full hover text', async () => {
+    const prompt = 'x'.repeat(120);
     await writeEvents('timeline-long-prompt', [
       {
         type: 'user.message',
         timestamp: '2026-07-21T06:00:00.000Z',
-        data: { content: 'x'.repeat(120) },
+        data: { content: prompt },
       },
     ]);
 
@@ -156,6 +157,7 @@ describe('StatusService timeline filtering', () => {
     expect(status.timeline).toHaveLength(1);
     expect(status.timeline[0].text).toHaveLength(80);
     expect(status.timeline[0].text.endsWith('...')).toBe(true);
+    expect(status.timeline[0].fullText).toBe(prompt);
   });
 });
 

@@ -656,8 +656,8 @@ class StatusService {
           switch (event.type) {
             case 'user.message':
               {
-                const text = this._timelinePreview(event.data?.content || event.data?.transformedContent || '');
-                if (text) events.push({ time: ts, type: 'user', text });
+                const { text, fullText } = this._timelinePrompt(event.data?.content || event.data?.transformedContent || '');
+                if (text) events.push({ time: ts, type: 'user', text, fullText });
               }
               break;
             case 'assistant.message':
@@ -679,15 +679,28 @@ class StatusService {
   }
 
   _timelinePreview(content, maxLength = 80) {
-    const text = String(content || '')
-      .replace(/<current_datetime>[\s\S]*?<\/current_datetime>/g, '')
-      .replace(/<system_reminder>[\s\S]*?<\/system_reminder>/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const text = this._timelineText(content);
     if (!text) return '';
 
     const firstLine = text.split(/\r?\n/)[0].trim();
     return firstLine.length > maxLength ? `${firstLine.slice(0, maxLength - 3).trimEnd()}...` : firstLine;
+  }
+
+  _timelinePrompt(content, maxLength = 80) {
+    const fullText = this._timelineText(content);
+    if (!fullText) return { text: '', fullText: '' };
+
+    const firstLine = fullText.split(/\r?\n/)[0].trim();
+    const text = firstLine.length > maxLength ? `${firstLine.slice(0, maxLength - 3).trimEnd()}...` : firstLine;
+    return { text, fullText };
+  }
+
+  _timelineText(content) {
+    return String(content || '')
+      .replace(/<current_datetime>[\s\S]*?<\/current_datetime>/g, '')
+      .replace(/<system_reminder>[\s\S]*?<\/system_reminder>/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   _assistantTimelineResult(content) {
