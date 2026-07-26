@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, stripTerminalMouseInputReports, isCopyShortcut } = require('../src/keyboard-shortcuts');
+const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, isCopyShortcut } = require('../src/keyboard-shortcuts');
 
 /** Build a minimal synthetic keydown event. */
 function key(overrides = {}) {
@@ -471,70 +471,6 @@ describe('createTerminalKeyHandler', () => {
 
     expect(result).toBe(false);
     expect(api.pasteText).toHaveBeenCalled();
-  });
-});
-
-describe('stripMouseTrackingSequences', () => {
-  it('removes standalone mouse-reporting mode sets (1000/1002/1003)', () => {
-    expect(stripMouseTrackingSequences('\x1b[?1000h')).toBe('');
-    expect(stripMouseTrackingSequences('\x1b[?1002h')).toBe('');
-    expect(stripMouseTrackingSequences('\x1b[?1003h')).toBe('');
-    expect(stripMouseTrackingSequences('\x1b[?1002l')).toBe('');
-  });
-
-  it('preserves surrounding output while dropping the mouse sequence', () => {
-    expect(stripMouseTrackingSequences('before\x1b[?1002hafter')).toBe('beforeafter');
-  });
-
-  it('strips mouse-reporting and mouse-encoding members from a combined parameter list', () => {
-    expect(stripMouseTrackingSequences('\x1b[?1002;1006h')).toBe('');
-    expect(stripMouseTrackingSequences('\x1b[?1006;1002;1015h')).toBe('');
-    expect(stripMouseTrackingSequences('\x1b[?1002;1006;2004h')).toBe('\x1b[?2004h');
-  });
-
-  it('leaves unrelated private modes untouched (alt-screen, bracketed paste, cursor keys)', () => {
-    expect(stripMouseTrackingSequences('\x1b[?1049h')).toBe('\x1b[?1049h');
-    expect(stripMouseTrackingSequences('\x1b[?2004h')).toBe('\x1b[?2004h');
-    expect(stripMouseTrackingSequences('\x1b[?1h')).toBe('\x1b[?1h');
-    expect(stripMouseTrackingSequences('\x1b[?25l')).toBe('\x1b[?25l');
-  });
-
-  it('strips standalone mouse encoding modes so xterm keeps normal selection/scroll behavior', () => {
-    expect(stripMouseTrackingSequences('\x1b[?1006h')).toBe('');
-    expect(stripMouseTrackingSequences('\x1b[?1005h')).toBe('');
-    expect(stripMouseTrackingSequences('\x1b[?1015h')).toBe('');
-    expect(stripMouseTrackingSequences('\x1b[?1016h')).toBe('');
-  });
-
-  it('is a no-op for chunks without private-mode sequences', () => {
-    expect(stripMouseTrackingSequences('plain text\r\n')).toBe('plain text\r\n');
-    expect(stripMouseTrackingSequences('')).toBe('');
-  });
-
-  it('handles non-string input defensively', () => {
-    expect(stripMouseTrackingSequences(null)).toBe(null);
-    expect(stripMouseTrackingSequences(undefined)).toBe(undefined);
-  });
-
-  it('does not strip a substring like 10002 (exact-token match only)', () => {
-    expect(stripMouseTrackingSequences('\x1b[?10002h')).toBe('\x1b[?10002h');
-  });
-});
-
-describe('stripTerminalMouseInputReports', () => {
-  it('removes SGR mouse reports before they can be written to the PTY', () => {
-    expect(stripTerminalMouseInputReports('hello\x1b[<0;42;12M world')).toBe('hello world');
-    expect(stripTerminalMouseInputReports('\x1b[<64;80;24Mtyped\x1b[<64;80;24m')).toBe('typed');
-  });
-
-  it('removes legacy X10 mouse reports before they can leak into prompt input', () => {
-    expect(stripTerminalMouseInputReports(`before\x1b[M${String.fromCharCode(32, 45, 50)}after`)).toBe('beforeafter');
-  });
-
-  it('leaves normal keyboard input untouched', () => {
-    expect(stripTerminalMouseInputReports('normal prompt text\r')).toBe('normal prompt text\r');
-    expect(stripTerminalMouseInputReports('')).toBe('');
-    expect(stripTerminalMouseInputReports(null)).toBe(null);
   });
 });
 

@@ -2,7 +2,7 @@ const { Terminal } = require('@xterm/xterm');
 const { FitAddon } = require('@xterm/addon-fit');
 const { WebLinksAddon } = require('@xterm/addon-web-links');
 const { deriveSessionState, getNewSessionAvailability, filterSessionsForSidebar } = require('./session-state');
-const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, stripTerminalMouseInputReports, isCopyShortcut } = require('./keyboard-shortcuts');
+const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, isCopyShortcut } = require('./keyboard-shortcuts');
 const { collectTerminalSearchMatches } = require('./terminal-search');
 const { resolveSidebarDragWidth } = require('./sidebar-resize');
 const { rememberRestorableClosedSession, peekRestorableClosedSession, forgetRestorableClosedSession } = require('./recently-closed');
@@ -20,15 +20,6 @@ const {
 } = require('./history-limit');
 const { getRecentChangelogReleases } = require('./changelog-utils');
 const { createStartupLoadingController } = require('./startup-loading');
-const {
-  getTerminalWheelDeltaLines,
-  getTerminalWheelDeltaPixels,
-  getTerminalWheelPagingSequence,
-  getWheelMouseReport,
-  isPointInsideElement,
-  scrollTerminalViewport,
-  updateTerminalMouseTracking,
-} = require('./terminal-wheel');
 
 // State
 const terminals = new Map();
@@ -101,6 +92,96 @@ const GROUP_COLORS = [
 ];
 let nextGroupColorIdx = 0;
 
+const MOUSE_REPORT_MODES = new Set(['1000', '1001', '1002', '1003']);
+
+function updateTerminalMouseEncodingState(entry, data) {
+  if (!entry || typeof data !== 'string' || data.indexOf('\x1b[?') === -1) return;
+  data.replace(/\x1b\[\?([0-9;]+)([hl])/g, (match, params, suffix) => {
+    const modes = params.split(';').filter(Boolean);
+    if (modes.some(mode => MOUSE_REPORT_MODES.has(mode))) {
+      entry.mouseTrackingSeen = suffix === 'h';
+    }
+    if (modes.includes('1006')) {
+      entry.sgrMouseEnabled = suffix === 'h';
+    }
+    return match;
+  });
+}
+
+function getTerminalMouseCoords(event, terminal) {
+  const screen = terminal?.element?.querySelector?.('.xterm-screen') || terminal?.element;
+  const dimensions = terminal?._core?._renderService?.dimensions?.css?.cell;
+  const cellWidth = dimensions?.width || 0;
+  const cellHeight = dimensions?.height || 0;
+  if (!screen || !cellWidth || !cellHeight) return null;
+
+  const rect = screen.getBoundingClientRect();
+  const col = Math.min(Math.max(Math.ceil((event.clientX - rect.left) / cellWidth), 1), terminal.cols);
+  const row = Math.min(Math.max(Math.ceil((event.clientY - rect.top) / cellHeight), 1), terminal.rows);
+  return { col, row };
+}
+
+function isPointInsideElement(event, element) {
+  if (!element || typeof event.clientX !== 'number' || typeof event.clientY !== 'number') return false;
+  const rect = element.getBoundingClientRect();
+  return event.clientX >= rect.left &&
+    event.clientX <= rect.right &&
+    event.clientY >= rect.top &&
+    event.clientY <= rect.bottom;
+}
+
+function terminalWantsMouseWheel(entry) {
+  const terminal = entry?.terminal;
+  if (!terminal) return false;
+  if (terminal.modes?.mouseTrackingMode && terminal.modes.mouseTrackingMode !== 'none') return true;
+  if (entry.mouseTrackingSeen) return true;
+  return false;
+}
+
+function getTerminalWheelMouseReport(event, entry) {
+  if (!terminalWantsMouseWheel(entry)) return '';
+  const coords = getTerminalMouseCoords(event, entry.terminal);
+  if (!coords) return '';
+
+  let buttonCode = event.deltaY < 0 ? 64 : 65;
+  if (event.shiftKey) buttonCode += 4;
+  if (event.altKey) buttonCode += 8;
+  if (event.ctrlKey) buttonCode += 16;
+
+  if (entry.sgrMouseEnabled) {
+    return `\x1b[<${buttonCode};${coords.col};${coords.row}M`;
+  }
+
+  const params = [buttonCode + 32, coords.col + 32, coords.row + 32];
+  if (params.some(value => value > 255)) return '';
+  return `\x1b[M${String.fromCharCode(...params)}`;
+}
+
+function forwardTerminalWheelMouseReport(sessionId, entry, event) {
+  const report = getTerminalWheelMouseReport(event, entry);
+  if (!report) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  window.api.writePty(sessionId, report);
+  return true;
+}
+
+function stripTerminalMouseReportsForPromptTracker(data) {
+  if (typeof data !== 'string' || data.indexOf('\x1b') === -1) return data;
+  return data
+    .replace(/\x1b\[<\d+;\d+;\d+[mM]/g, '')
+    .replace(/\x1b\[M[\s\S]{3}/g, '');
+}
+
+function shouldRouteTerminalMouseWheel(event) {
+  if (isBlockingModalOpen()) return false;
+  if (event.ctrlKey || event.metaKey) return false;
+  if (!activeSessionId || !terminals.has(activeSessionId)) return false;
+  if (terminalArea?.style?.display === 'none') return false;
+  if (sessionSearch?.contains(event.target)) return false;
+  return terminalColumn?.contains(event.target) || isPointInsideElement(event, terminalColumn);
+}
+
 function saveTabState() {
   const openTabs = [...openTabIds];
   const activeSessions = [...sessionAliveState];
@@ -135,53 +216,6 @@ const XTERM_THEMES = {
     brightBlue: '#1e66f5', brightMagenta: '#ea76cb', brightCyan: '#179299', brightWhite: '#bcc0cc'
   }
 };
-
-function forwardTrackedMouseWheel(sessionId, entry, event) {
-  const report = getWheelMouseReport(event, entry);
-  if (!report) return false;
-  event.preventDefault();
-  event.stopPropagation();
-  window.api.writePty(sessionId, report);
-  return true;
-}
-
-function shouldRouteTerminalWheel(event) {
-  if (isBlockingModalOpen()) return false;
-  if (!activeSessionId || !terminals.has(activeSessionId)) return false;
-  if (terminalArea?.style?.display === 'none') return false;
-  if (sessionSearch?.contains(event.target)) return false;
-  return terminalColumn?.contains(event.target) || isPointInsideElement(event, terminalColumn);
-}
-
-function handleTerminalScrollbackWheel(event, entry) {
-  const terminal = entry?.terminal;
-  if (!terminal) return;
-  if (event.ctrlKey || event.metaKey) {
-    event.preventDefault();
-    event.stopPropagation();
-    applyZoom(event.deltaY < 0 ? 'in' : 'out');
-    return;
-  }
-  if (forwardTrackedMouseWheel(activeSessionId, entry, event)) return;
-  const deltaLines = getTerminalWheelDeltaLines(event, terminal);
-  if (!deltaLines) return;
-
-  event.preventDefault();
-  event.stopPropagation();
-
-  // Copilot CLI owns most of the visible screen. When it doesn't advertise
-  // mouse tracking (or the enable sequence was missed during renderer attach),
-  // xterm scrollback is usually inert; send terminal paging keys so the CLI
-  // scrolls its own transcript instead of doing nothing.
-  window.api.writePty(activeSessionId, getTerminalWheelPagingSequence(deltaLines));
-
-  const accumulatedLines = (entry.wheelScrollRemainder || 0) + deltaLines;
-  const wholeLines = accumulatedLines > 0
-    ? Math.floor(accumulatedLines)
-    : Math.ceil(accumulatedLines);
-  entry.wheelScrollRemainder = accumulatedLines - wholeLines;
-  scrollTerminalViewport(entry, wholeLines, getTerminalWheelDeltaPixels(event, terminal));
-}
 
 // DOM elements
 const sessionList = document.getElementById('session-list');
@@ -401,10 +435,9 @@ function writePlainKeyToActiveTerminal(e) {
   else return false;
 
   e.preventDefault();
-  const sanitizedData = stripTerminalMouseInputReports(data);
-  if (!sanitizedData) return true;
-  handleSessionPromptInput(activeSessionId, sanitizedData);
-  window.api.writePty(activeSessionId, sanitizedData);
+  const promptData = stripTerminalMouseReportsForPromptTracker(data);
+  if (promptData) handleSessionPromptInput(activeSessionId, promptData);
+  window.api.writePty(activeSessionId, data);
   return true;
 }
 
@@ -1109,10 +1142,8 @@ async function init() {
   ipcCleanups.push(window.api.onPtyData((sessionId, data) => {
     const entry = terminals.get(sessionId);
     if (entry) {
-      updateTerminalMouseTracking(entry, data);
-      // Strip the CLI's mouse-reporting mode-set sequences so xterm keeps
-      // ownership of the mouse and plain-drag text selection / copy work.
-      entry.terminal.write(stripMouseTrackingSequences(data), () => {
+      updateTerminalMouseEncodingState(entry, data);
+      entry.terminal.write(data, () => {
         scheduleTerminalViewportSync(sessionId, { refreshSearch: true });
       });
     }
@@ -2993,8 +3024,8 @@ async function newSession(launchOverrides = null) {
     if (bufferedData) {
       const termEntry = terminals.get(sessionId);
       if (termEntry) {
-        updateTerminalMouseTracking(termEntry, bufferedData);
-        termEntry.terminal.write(stripMouseTrackingSequences(bufferedData), () => {
+        updateTerminalMouseEncodingState(termEntry, bufferedData);
+        termEntry.terminal.write(bufferedData, () => {
           scheduleTerminalViewportSync(sessionId, { refreshSearch: true });
         });
       }
@@ -3130,10 +3161,9 @@ function createTerminal(sessionId) {
   });
 
   terminal.onData((data) => {
-    const sanitizedData = stripTerminalMouseInputReports(data);
-    if (!sanitizedData) return;
-    handleSessionPromptInput(sessionId, sanitizedData);
-    window.api.writePty(sessionId, sanitizedData);
+    const promptData = stripTerminalMouseReportsForPromptTracker(data);
+    if (promptData) handleSessionPromptInput(sessionId, promptData);
+    window.api.writePty(sessionId, data);
   });
   terminal.onResize(({ cols, rows }) => {
     trackedResizePty(sessionId, cols, rows);
@@ -3146,15 +3176,11 @@ function createTerminal(sessionId) {
   });
   terminal.attachCustomWheelEventHandler((event) => {
     const currentEntry = terminals.get(sessionId);
-    return !forwardTrackedMouseWheel(sessionId, currentEntry, event);
+    return !forwardTerminalWheelMouseReport(sessionId, currentEntry, event);
   });
 
   // Copy-on-select: mirror xterm's selection to the clipboard, matching
-  // PuTTY/Windows Terminal behavior. Because we strip the CLI's mouse-reporting
-  // sequences (see stripMouseTrackingSequences), xterm keeps mouse ownership and
-  // a plain click+drag now produces a real xterm model selection here — no DOM
-  // selection fallback is needed (xterm sets `user-select: none`, so a browser
-  // selection never exists over the terminal). Gated on the setting; skips empty
+  // PuTTY/Windows Terminal behavior. Gated on the setting; skips empty
   // selections so a plain click doesn't clobber the clipboard.
   const copySelectionToClipboard = () => {
     if (window._cachedSettings?.copyOnSelect === false) return;
@@ -3164,11 +3190,9 @@ function createTerminal(sessionId) {
     const cleanedSelection = stripTerminalScrollbar(selection, terminal.cols);
     if (cleanedSelection.trim()) window.api.copyText(cleanedSelection);
   };
-  // onSelectionChange covers keyboard/Shift selection changes. A mouseup handler
-  // is the reliable trigger for a plain click+drag: xterm finalizes the model
-  // selection on mouseup, and reading it here mirrors the (working) Ctrl+C path
-  // exactly, so copy-on-select lands even if onSelectionChange doesn't fire a
-  // final event for the drag.
+  // onSelectionChange covers keyboard and terminal selections, including
+  // Shift+drag when the CLI owns plain mouse input. A mouseup fallback mirrors
+  // Ctrl+C after xterm has committed the selection.
   terminal.onSelectionChange(copySelectionToClipboard);
   wrapper.addEventListener('mouseup', () => {
     // Defer one tick so xterm's SelectionService has committed the selection
@@ -3209,7 +3233,7 @@ function createTerminal(sessionId) {
     wrapper,
     isSyncingViewport: false,
     pendingViewportRefreshSearch: false,
-    mouseTrackingEnabled: false,
+    mouseTrackingSeen: false,
     sgrMouseEnabled: false
   });
   scheduleTerminalViewportSync(sessionId);
@@ -5282,18 +5306,13 @@ async function applyZoom(direction) {
   }, 100);
 }
 
-// Terminal wheel handling lives at the document capture layer because xterm's
-// helper textarea and DeepSky's prompt/info bar can take focus/targeting away
-// from the per-session wrapper. Route only when the pointer is visually over
-// the terminal column so sidebars, status panels, modals, and settings keep
-// their native scroll behavior.
 document.addEventListener('wheel', (e) => {
-  if (shouldRouteTerminalWheel(e)) {
-    handleTerminalScrollbackWheel(e, activeSessionId ? terminals.get(activeSessionId) : null);
-    return;
+  if (shouldRouteTerminalMouseWheel(e)) {
+    if (forwardTerminalWheelMouseReport(activeSessionId, terminals.get(activeSessionId), e)) return;
   }
   if (!(e.ctrlKey || e.metaKey)) return;
   e.preventDefault();
+  e.stopPropagation();
   applyZoom(e.deltaY < 0 ? 'in' : 'out');
 }, { capture: true, passive: false });
 

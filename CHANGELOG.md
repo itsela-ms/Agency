@@ -4,6 +4,16 @@ All notable changes to DeepSky are documented here.
 
 ## [Unreleased]
 
+## [1.2.11] - 2026-07-26
+
+### Fixed
+- **Terminal wheel scrolling is restored without textbox jumps** - DeepSky now lets xterm handle normal scrollback like earlier stable releases, only forwarding wheel input as terminal mouse reports when the CLI explicitly negotiates mouse tracking.
+- **Terminal input stays clean while scrolling** - generated mouse reports are ignored by DeepSky's local prompt tracker while the raw PTY stream remains intact for the terminal session.
+- **Status timelines stay focused on useful activity** - assistant-echoed session lifecycle metadata such as session resumes, plan updates, and sub-agent bookkeeping is filtered out of the Session Status timeline.
+
+### Removed
+- **Removed fragile terminal wheel fallbacks** - deleted the custom PageUp/PageDown and viewport scroll fallback module that could steal wheel events from native xterm scrollback.
+
 ## [1.2.10] - 2026-07-22
 
 ### Fixed

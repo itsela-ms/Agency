@@ -144,51 +144,6 @@ function stripTerminalScrollbar(text, terminalColumns = 0) {
 }
 
 /**
- * Strips terminal mouse-tracking enable/disable sequences from a PTY data
- * chunk before it reaches xterm.
- *
- * WHY: xterm hands a plain click+drag to the application (instead of creating a
- * text selection) whenever the app has mouse reporting active — see xterm's
- * mousedown gate `areMouseEventsActive && !shouldForceSelection(e)`. The
- * embedded Copilot CLI enables mouse reporting, so without this a plain drag
- * never selects (only Shift+drag does) and copy-on-select / Ctrl+C have nothing
- * to copy. By swallowing the mode-set sequences here, `areMouseEventsActive`
- * stays false, xterm keeps ownership of button/drag selection, and plain-drag
- * selection + copy work like a normal terminal. The renderer separately tracks
- * the swallowed mode state and forwards wheel reports only while that state is
- * active, so scroll still reaches the CLI without xterm-generated mouse bytes
- * leaking into prompt input.
- *
- * Only the X10/VT200/button/any-event mouse REPORTING modes (1000–1003) are
- * removed, along with mouse encoding modes (1005/1006/1015/1016). Alt-screen
- * (1049), bracketed paste (2004), cursor keys, etc. are left untouched. Semicolon-combined
- * parameter lists (e.g. `\x1b[?1002;1006h`) are handled by removing only the
- * mouse-reporting members and preserving the rest.
- *
- * @param {string} data - raw chunk written from the PTY toward the terminal.
- * @returns {string} the chunk with mouse-reporting mode-set sequences removed.
- */
-const MOUSE_REPORT_MODES = new Set(['1000', '1001', '1002', '1003', '1005', '1006', '1015', '1016']);
-
-function stripMouseTrackingSequences(data) {
-  if (typeof data !== 'string' || data.indexOf('\x1b[?') === -1) return data;
-  // Matches a private-mode set/reset: ESC [ ? <params> (h|l)
-  return data.replace(/\x1b\[\?([0-9;]+)([hl])/g, (match, params, suffix) => {
-    const kept = params.split(';').filter(p => p !== '' && !MOUSE_REPORT_MODES.has(p));
-    if (kept.length === params.split(';').filter(p => p !== '').length) return match; // nothing removed
-    if (kept.length === 0) return '';
-    return `\x1b[?${kept.join(';')}${suffix}`;
-  });
-}
-
-function stripTerminalMouseInputReports(data) {
-  if (typeof data !== 'string' || !data) return data;
-  return data
-    .replace(/\x1b\[<\d+;\d+;\d+[mM]/g, '')
-    .replace(/\x1b\[M[\s\S]{3}/g, '');
-}
-
-/**
  * Creates the xterm custom key event handler for a terminal session.
  *
  * Returns false  → let the event bubble up to the document-level keydown handler.
@@ -225,9 +180,8 @@ function createTerminalKeyHandler(sessionId, terminal, api, hooks = {}) {
     if (mod && !e.shiftKey && lowerKey === 'f') return false;
 
     // Ctrl+C with a selection → copy to clipboard instead of sending SIGINT.
-    // With mouse-reporting stripped from the PTY stream (see
-    // stripMouseTrackingSequences), a plain drag now creates a real xterm model
-    // selection, so this single check covers both plain-drag and Shift+drag.
+    // xterm owns terminal selection state; if there is an active selection,
+    // copy it instead of forwarding Ctrl+C as SIGINT.
     // Browser-native selection never exists over the terminal (xterm sets
     // `user-select: none` and preventDefaults mousedown), so xterm's own
     // selection model is the sole source of truth here.
@@ -289,4 +243,4 @@ function createTerminalKeyHandler(sessionId, terminal, api, hooks = {}) {
   };
 }
 
-module.exports = { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, stripTerminalMouseInputReports, isCopyShortcut };
+module.exports = { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, isCopyShortcut };

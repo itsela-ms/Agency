@@ -102,6 +102,10 @@ describe('StatusService timeline filtering', () => {
       { type: 'session.plan_changed', timestamp: '2026-07-21T06:02:00.000Z', data: { operation: 'updated' } },
       { type: 'subagent.started', timestamp: '2026-07-21T06:03:00.000Z', data: { description: 'QA pass' } },
       { type: 'subagent.completed', timestamp: '2026-07-21T06:04:00.000Z' },
+      { type: 'assistant.message', timestamp: '2026-07-21T06:05:00.000Z', data: { content: 'Session resumed' } },
+      { type: 'assistant.message', timestamp: '2026-07-21T06:06:00.000Z', data: { content: 'Plan updated' } },
+      { type: 'assistant.message', timestamp: '2026-07-21T06:07:00.000Z', data: { content: 'Updated plan' } },
+      { type: 'assistant.message', timestamp: '2026-07-21T06:08:00.000Z', data: { content: 'Sub-agent complete' } },
     ]);
 
     const status = await svc.getSessionStatus('timeline-noise');

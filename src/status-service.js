@@ -706,6 +706,7 @@ class StatusService {
   _assistantTimelineResult(content) {
     const text = this._timelinePreview(content, 90);
     if (!text) return '';
+    if (this._isTimelineMetadata(text)) return '';
 
     if (/^(done|fixed|created|added|updated|published|released|shipped|validated|completed|passed|ready|blocked)\b/i.test(text)) {
       return text;
@@ -716,6 +717,10 @@ class StatusService {
     }
 
     return '';
+  }
+
+  _isTimelineMetadata(text) {
+    return /^(session resumed|plan updated|updated plan|plan update|sub-?agent complete(?:d)?|sub-?agent started)\b/i.test(text);
   }
 }
 

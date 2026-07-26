@@ -631,8 +631,8 @@
       <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
         <span style="font-size: 1.2rem; flex-shrink: 0;">🖱</span>
         <div>
-          <div style="font-weight: 600; color: var(--text); font-size: 0.95rem;">Terminal interaction is smoother</div>
-          <div style="color: var(--subtext0); font-size: 0.85rem; margin-top: 2px;">Links open reliably, terminal focus recovers when it lands on chrome, CLI transcript scrolling works, and copied output drops rendered terminal noise.</div>
+          <div style="font-weight: 600; color: var(--text); font-size: 0.95rem;">Terminal scrolling is back to native</div>
+          <div style="color: var(--subtext0); font-size: 0.85rem; margin-top: 2px;">Wheel scrolling now falls through to xterm scrollback unless the CLI explicitly asks for terminal mouse input, avoiding textbox jumps and dead scroll gestures.</div>
         </div>
       </div>
       <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
@@ -670,7 +670,7 @@
     <li><span class="fl-icon">📁</span> Working directory — pick a directory per session, change on the fly without dropping the session, persisted across restarts, now shown as an outline-only yellow folder affordance in the Active list</li>
     <li><span class="fl-icon">⚡</span> Live status badges — Working, Waiting, Idle, Pending, Done — updated quickly from substantive agent output without idle redraw flicker</li>
     <li><span class="fl-icon">🖥</span> Multi-tab terminal — 10K scrollback, reliable http(s) link opening, close button on tabs, reliable Ctrl+V paste, first-frame scrolling, and Ctrl+Tab order that mirrors the sidebar</li>
-    <li><span class="fl-icon">🖱</span> Terminal selection, focus, and scrolling — click-drag selects terminal text normally, stranded focus recovers on click or typing, Copilot CLI transcripts scroll with the wheel, and copied output strips rendered terminal chrome</li>
+    <li><span class="fl-icon">🖱</span> Terminal selection, focus, and scrolling — terminal scrollback keeps native wheel behavior, stranded focus recovers on click or typing, Shift+drag selection remains available when the CLI owns mouse input, and copied output strips rendered terminal chrome</li>
     <li><span class="fl-icon">🔔</span> Notifications — toast, badge counter, dropdown panel, native OS alerts</li>
     <li><span class="fl-icon">📋</span> Session Status panel — live intent, summary, next steps, session-scoped files changed, timeline, and related resources from visible conversation mentions. Work Items show type and truncated title with the full text on hover. Toggle with Ctrl+I.</li>
     <li><span class="fl-icon">🎨</span> Catppuccin Mocha &amp; Latte themes</li>
@@ -698,13 +698,13 @@
   <div style="max-width: 760px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
     <div style="background: var(--mantle); border: 1px solid var(--surface0); border-radius: 12px; padding: 1.25rem 1.4rem;">
       <div style="font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--blue); margin-bottom: 0.65rem;">Settings &rarr; About</div>
-      <div style="font-size: 1.02rem; font-weight: 700; color: var(--text); margin-bottom: 0.55rem;">Scrolling, copy, and status are cleaner</div>
+      <div style="font-size: 1.02rem; font-weight: 700; color: var(--text); margin-bottom: 0.55rem;">Scrolling, input, and status are cleaner</div>
       <p style="color: var(--subtext0); font-size: 0.9rem; margin-bottom: 0.85rem;">
-        The latest polish keeps the CLI transcript scrollable, cleans terminal copy output, and keeps the status timeline focused on prompts and key results.
+        The latest polish restores native terminal wheel scrolling, keeps generated mouse bytes out of DeepSky's prompt tracker, and keeps the status timeline focused on prompts and key results.
       </p>
       <ul style="margin: 0; padding-left: 1.1rem; color: var(--subtext1); font-size: 0.88rem; display: flex; flex-direction: column; gap: 0.45rem;">
         <li>Settings &rarr; About shows the installed version and recent release notes.</li>
-        <li>Terminal links open reliably, stranded focus recovers, and Copilot CLI transcript panes respond to mouse wheel events.</li>
+        <li>Terminal scrollback receives normal wheel events unless the CLI has explicitly negotiated terminal mouse tracking.</li>
         <li>Copied multiline terminal text drops rendered gutters, tree guides, dividers, timestamps, and scrollbar artifacts.</li>
         <li>Session Status timelines hide session-resume and plan-update plumbing, keeping prompts and key results; truncated prompts show the full text on hover.</li>
         <li>Slow session launches show a temporary Starting row in the Active list.</li>
@@ -718,13 +718,13 @@
       <div style="display: flex; flex-direction: column; gap: 0.7rem;">
         <div style="background: rgba(137,180,250,0.08); border: 1px solid rgba(137,180,250,0.2); border-radius: 10px; padding: 0.8rem 0.9rem;">
           <div style="font-size: 0.82rem; color: var(--subtext0); margin-bottom: 0.25rem;">Current focus</div>
-          <div style="font-size: 1rem; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono', monospace;">Terminal scrolling, clean copy, and focused timeline</div>
+          <div style="font-size: 1rem; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono', monospace;">Native terminal scrolling and focused timeline</div>
         </div>
         <div style="background: var(--base); border: 1px solid var(--surface0); border-radius: 10px; padding: 0.85rem 0.95rem;">
           <div style="font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--blue); margin-bottom: 0.45rem;">Recent release notes</div>
           <div style="display: flex; flex-direction: column; gap: 0.4rem; color: var(--subtext1); font-size: 0.84rem;">
             <div><strong style="color: var(--text);">Added</strong> - Starting rows and About feedback actions.</div>
-            <div><strong style="color: var(--text);">Fixed</strong> - CLI transcript wheel scrolling, terminal copy cleanup, status timeline noise, and full-prompt hover text.</div>
+            <div><strong style="color: var(--text);">Fixed</strong> - Native terminal wheel scrolling, clean prompt input while scrolling, status timeline noise, and full-prompt hover text.</div>
           </div>
         </div>
         <a href="https://github.com/itsela-ms/DeepSky/blob/main/CHANGELOG.md" style="color: var(--blue); text-decoration: none; font-size: 0.88rem; font-weight: 600;">
