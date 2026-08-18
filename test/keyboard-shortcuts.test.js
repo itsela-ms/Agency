@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, isCopyShortcut } = require('../src/keyboard-shortcuts');
+const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, isCopyShortcut } = require('../src/keyboard-shortcuts');
 
 /** Build a minimal synthetic keydown event. */
 function key(overrides = {}) {
@@ -301,6 +301,24 @@ describe('createTerminalKeyHandler', () => {
     it('removes a trailing scrollbar glyph and its padding from each line', () => {
       expect(stripTerminalScrollbar('hello        \u2503')).toBe('hello');
       expect(stripTerminalScrollbar('line one   \u2503\nline two \u2503')).toBe('line one\nline two');
+    });
+
+    describe('stripMouseTrackingSequences', () => {
+      it('removes terminal mouse tracking modes while preserving unrelated private modes', () => {
+        expect(stripMouseTrackingSequences('\x1b[?1000;1002;1006h')).toBe('\x1b[?1006h');
+        expect(stripMouseTrackingSequences('\x1b[?25;1000;2004h')).toBe('\x1b[?25;2004h');
+        expect(stripMouseTrackingSequences('before\x1b[?1003lafter')).toBe('beforeafter');
+        expect(stripMouseTrackingSequences('\x1b[?9h')).toBe('');
+        expect(stripMouseTrackingSequences('\x1b[?25h')).toBe('\x1b[?25h');
+      });
+
+      it('holds split mouse tracking sequences across chunks', () => {
+        const state = {};
+        expect(stripMouseTrackingSequences('before\x1b[?10', state)).toBe('before');
+        expect(state.pendingMouseTrackingSequence).toBe('\x1b[?10');
+        expect(stripMouseTrackingSequences('00;2004hafter', state)).toBe('\x1b[?2004hafter');
+        expect(state.pendingMouseTrackingSequence).toBe('');
+      });
     });
 
     it('removes trailing ascii pipe scrollbars only at the terminal right edge', () => {

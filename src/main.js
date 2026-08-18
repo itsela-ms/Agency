@@ -214,11 +214,40 @@ function requireValidSessionId(sessionId) {
 }
 
 function getAugmentedSettings(settings) {
+  const copilotInfo = resolveCopilotInfo();
+  const copilotPath = resolveEffectiveCopilotPath(settings, copilotInfo);
+  if (copilotPath) {
+    syncPtyCopilotPath(copilotPath);
+  } else {
+    ptyManager?.updateCopilotPath('');
+  }
   return {
     ...settings,
     agencyAvailable: resolveAgencyInfo().found,
-    copilotAvailable: resolveCopilotInfo().found,
+    copilotAvailable: Boolean(copilotPath),
   };
+}
+
+function resolveEffectiveCopilotPath(settings, copilotInfo = resolveCopilotInfo()) {
+  const configuredPath = typeof settings?.copilotPath === 'string' ? settings.copilotPath.trim() : '';
+  if (configuredPath) {
+    return isUsableLauncherFile(configuredPath) ? configuredPath : '';
+  }
+  return copilotInfo.found ? copilotInfo.path : '';
+}
+
+function isUsableLauncherFile(filePath) {
+  if (!path.isAbsolute(filePath)) return false;
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function syncPtyCopilotPath(copilotPath) {
+  if (!ptyManager) return;
+  ptyManager.updateCopilotPath(copilotPath);
 }
 
 function dispatchRestoreTabShortcut() {
@@ -297,7 +326,8 @@ if (!hasSingleInstanceLock) {
 
   await fs.promises.mkdir(SESSION_STATE_DIR, { recursive: true });
 
-  const copilotExe = settingsService.get().copilotPath || COPILOT_PATH;
+  const startupSettings = settingsService.get();
+  const copilotExe = resolveEffectiveCopilotPath(startupSettings) || (startupSettings.copilotPath ? '' : COPILOT_PATH);
   sessionService = new SessionService(SESSION_STATE_DIR);
   ptyManager = new PtyManager(copilotExe, settingsService, undefined, { agencyPath: resolveAgencyInfo().path });
 
@@ -495,7 +525,7 @@ if (!hasSingleInstanceLock) {
       parseLauncherArgs(sanitized.copilotArgs);
     }
     delete sanitized.agencyCopilotArgs;
-    const launchSettingsChanged = 'useAgencyCopilot' in sanitized || 'defaultWorkdir' in sanitized || 'promptForWorkdir' in sanitized || 'copilotArgs' in sanitized;
+    const launchSettingsChanged = 'useAgencyCopilot' in sanitized || 'defaultWorkdir' in sanitized || 'promptForWorkdir' in sanitized || 'copilotArgs' in sanitized || 'copilotPath' in sanitized;
     const updated = await settingsService.update(sanitized);
     ptyManager.updateSettings(updated, launchSettingsChanged);
     if (launchSettingsChanged) {

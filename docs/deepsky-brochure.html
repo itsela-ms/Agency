@@ -631,8 +631,15 @@
       <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
         <span style="font-size: 1.2rem; flex-shrink: 0;">🖱</span>
         <div>
-          <div style="font-weight: 600; color: var(--text); font-size: 0.95rem;">Terminal scrolling is back to native</div>
-          <div style="color: var(--subtext0); font-size: 0.85rem; margin-top: 2px;">Wheel scrolling now falls through to xterm scrollback unless the CLI explicitly asks for terminal mouse input, avoiding textbox jumps and dead scroll gestures.</div>
+          <div style="font-weight: 600; color: var(--text); font-size: 0.95rem;">Terminal copy and scrolling work together</div>
+          <div style="color: var(--subtext0); font-size: 0.85rem; margin-top: 2px;">Plain drag selection stays available for copying while wheel reports still reach the CLI when it negotiates terminal mouse input.</div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+        <span style="font-size: 1.2rem; flex-shrink: 0;">🚦</span>
+        <div>
+          <div style="font-weight: 600; color: var(--text); font-size: 0.95rem;">Copilot CLI detection recovers in-place</div>
+          <div style="color: var(--subtext0); font-size: 0.85rem; margin-top: 2px;">Windows installs and PATH updates are retried from the running app, so users do not need to restart DeepSky after adding Copilot CLI.</div>
         </div>
       </div>
       <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
@@ -670,7 +677,7 @@
     <li><span class="fl-icon">📁</span> Working directory — pick a directory per session, change on the fly without dropping the session, persisted across restarts, now shown as an outline-only yellow folder affordance in the Active list</li>
     <li><span class="fl-icon">⚡</span> Live status badges — Working, Waiting, Idle, Pending, Done — updated quickly from substantive agent output without idle redraw flicker</li>
     <li><span class="fl-icon">🖥</span> Multi-tab terminal — 10K scrollback, reliable http(s) link opening, close button on tabs, reliable Ctrl+V paste, first-frame scrolling, and Ctrl+Tab order that mirrors the sidebar</li>
-    <li><span class="fl-icon">🖱</span> Terminal selection, focus, and scrolling — terminal scrollback keeps native wheel behavior, stranded focus recovers on click or typing, Shift+drag selection remains available when the CLI owns mouse input, and copied output strips rendered terminal chrome</li>
+    <li><span class="fl-icon">🖱</span> Terminal selection, focus, and scrolling — terminal scrollback keeps native wheel behavior, stranded focus recovers on click or typing, plain drag selection works for copying, and copied output strips rendered terminal chrome</li>
     <li><span class="fl-icon">🔔</span> Notifications — toast, badge counter, dropdown panel, native OS alerts</li>
     <li><span class="fl-icon">📋</span> Session Status panel — live intent, summary, next steps, session-scoped files changed, timeline, and related resources from visible conversation mentions. Work Items show type and truncated title with the full text on hover. Toggle with Ctrl+I.</li>
     <li><span class="fl-icon">🎨</span> Catppuccin Mocha &amp; Latte themes</li>
@@ -685,7 +692,7 @@
     <li><span class="fl-icon">🚀</span> One-off launch options — start a single new session with Copilot or Agency and custom args without changing your global launcher settings</li>
     <li><span class="fl-icon">🚦</span> Starting rows — slow Copilot or Agency launches appear in the Active list immediately while the real session initializes</li>
     <li><span class="fl-icon">↩</span> Closed-tab restore — Ctrl+Shift+T reopens recently closed sessions without losing the restore stack on transient failures</li>
-    <li><span class="fl-icon">🛠</span> Copilot CLI compatibility — new sessions discover the CLI-assigned session ID after spawn, and saved History sessions reopen by their stable local UUID</li>
+    <li><span class="fl-icon">🛠</span> Copilot CLI compatibility — Windows PATH/install updates recover in-place, new sessions discover the CLI-assigned session ID after spawn, and saved History sessions reopen by their stable local UUID</li>
     <li><span class="fl-icon">⚙️</span> Settings tabs — General, Updates, Shortcuts, and About, including the current version and recent release notes</li>
     <li><span class="fl-icon">📂</span> Directory picker — browse for a default working directory with Browse &amp; Clear buttons</li>
     <li><span class="fl-icon">✨</span> Enhance Instructions — one-click rewrite of your global Copilot instructions using the latest context-engineering practices, with timestamped backup and one-click rollback</li>
@@ -700,12 +707,13 @@
       <div style="font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--blue); margin-bottom: 0.65rem;">Settings &rarr; About</div>
       <div style="font-size: 1.02rem; font-weight: 700; color: var(--text); margin-bottom: 0.55rem;">Scrolling, input, and status are cleaner</div>
       <p style="color: var(--subtext0); font-size: 0.9rem; margin-bottom: 0.85rem;">
-        The latest polish restores native terminal wheel scrolling, keeps generated mouse bytes out of DeepSky's prompt tracker, and keeps the status timeline focused on prompts and key results.
+        The latest polish keeps terminal copy and wheel scrolling working together, recovers Copilot CLI detection after Windows PATH updates, keeps generated mouse bytes out of DeepSky's prompt tracker, and keeps the status timeline focused on prompts and key results.
       </p>
       <ul style="margin: 0; padding-left: 1.1rem; color: var(--subtext1); font-size: 0.88rem; display: flex; flex-direction: column; gap: 0.45rem;">
         <li>Settings &rarr; About shows the installed version and recent release notes.</li>
         <li>Terminal scrollback receives normal wheel events unless the CLI has explicitly negotiated terminal mouse tracking.</li>
         <li>Copied multiline terminal text drops rendered gutters, tree guides, dividers, timestamps, and scrollbar artifacts.</li>
+        <li>Windows Copilot CLI installs and PATH updates are picked up in-place without requiring an app restart.</li>
         <li>Session Status timelines hide session-resume and plan-update plumbing, keeping prompts and key results; truncated prompts show the full text on hover.</li>
         <li>Slow session launches show a temporary Starting row in the Active list.</li>
         <li>Work Items in Session Status show type and title with full hover text.</li>
@@ -724,7 +732,7 @@
           <div style="font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--blue); margin-bottom: 0.45rem;">Recent release notes</div>
           <div style="display: flex; flex-direction: column; gap: 0.4rem; color: var(--subtext1); font-size: 0.84rem;">
             <div><strong style="color: var(--text);">Added</strong> - Starting rows and About feedback actions.</div>
-            <div><strong style="color: var(--text);">Fixed</strong> - Native terminal wheel scrolling, clean prompt input while scrolling, status timeline noise, and full-prompt hover text.</div>
+            <div><strong style="color: var(--text);">Fixed</strong> - Terminal copy plus wheel scrolling, Copilot CLI detection after Windows PATH updates, clean prompt input while scrolling, status timeline noise, and full-prompt hover text.</div>
           </div>
         </div>
         <a href="https://github.com/itsela-ms/DeepSky/blob/main/CHANGELOG.md" style="color: var(--blue); text-decoration: none; font-size: 0.88rem; font-weight: 600;">

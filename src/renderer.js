@@ -2,7 +2,7 @@ const { Terminal } = require('@xterm/xterm');
 const { FitAddon } = require('@xterm/addon-fit');
 const { WebLinksAddon } = require('@xterm/addon-web-links');
 const { deriveSessionState, getNewSessionAvailability, filterSessionsForSidebar } = require('./session-state');
-const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, isCopyShortcut } = require('./keyboard-shortcuts');
+const { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, splitTrailingMousePrivateModePrefix, MOUSE_REPORT_MODES, isCopyShortcut } = require('./keyboard-shortcuts');
 const { collectTerminalSearchMatches } = require('./terminal-search');
 const { resolveSidebarDragWidth } = require('./sidebar-resize');
 const { rememberRestorableClosedSession, peekRestorableClosedSession, forgetRestorableClosedSession } = require('./recently-closed');
@@ -92,11 +92,13 @@ const GROUP_COLORS = [
 ];
 let nextGroupColorIdx = 0;
 
-const MOUSE_REPORT_MODES = new Set(['1000', '1001', '1002', '1003']);
-
 function updateTerminalMouseEncodingState(entry, data) {
-  if (!entry || typeof data !== 'string' || data.indexOf('\x1b[?') === -1) return;
-  data.replace(/\x1b\[\?([0-9;]+)([hl])/g, (match, params, suffix) => {
+  if (!entry || typeof data !== 'string') return;
+  const input = `${entry.pendingMouseTrackingStateSequence || ''}${data}`;
+  const { body, pending } = splitTrailingMousePrivateModePrefix(input);
+  entry.pendingMouseTrackingStateSequence = pending;
+  if (body.indexOf('\x1b[?') === -1) return;
+  body.replace(/\x1b\[\?([0-9;]+)([hl])/g, (match, params, suffix) => {
     const modes = params.split(';').filter(Boolean);
     if (modes.some(mode => MOUSE_REPORT_MODES.has(mode))) {
       entry.mouseTrackingSeen = suffix === 'h';
@@ -1143,7 +1145,7 @@ async function init() {
     const entry = terminals.get(sessionId);
     if (entry) {
       updateTerminalMouseEncodingState(entry, data);
-      entry.terminal.write(data, () => {
+      entry.terminal.write(stripMouseTrackingSequences(data, entry), () => {
         scheduleTerminalViewportSync(sessionId, { refreshSearch: true });
       });
     }
@@ -3025,7 +3027,7 @@ async function newSession(launchOverrides = null) {
       const termEntry = terminals.get(sessionId);
       if (termEntry) {
         updateTerminalMouseEncodingState(termEntry, bufferedData);
-        termEntry.terminal.write(bufferedData, () => {
+        termEntry.terminal.write(stripMouseTrackingSequences(bufferedData, termEntry), () => {
           scheduleTerminalViewportSync(sessionId, { refreshSearch: true });
         });
       }
@@ -3190,9 +3192,9 @@ function createTerminal(sessionId) {
     const cleanedSelection = stripTerminalScrollbar(selection, terminal.cols);
     if (cleanedSelection.trim()) window.api.copyText(cleanedSelection);
   };
-  // onSelectionChange covers keyboard and terminal selections, including
-  // Shift+drag when the CLI owns plain mouse input. A mouseup fallback mirrors
-  // Ctrl+C after xterm has committed the selection.
+  // Mouse-tracking modes are hidden from xterm, so plain drag can create a
+  // selection while wheel reports are still forwarded to the CLI. A mouseup
+  // fallback mirrors Ctrl+C after xterm has committed the selection.
   terminal.onSelectionChange(copySelectionToClipboard);
   wrapper.addEventListener('mouseup', () => {
     // Defer one tick so xterm's SelectionService has committed the selection
@@ -3234,7 +3236,9 @@ function createTerminal(sessionId) {
     isSyncingViewport: false,
     pendingViewportRefreshSearch: false,
     mouseTrackingSeen: false,
-    sgrMouseEnabled: false
+    sgrMouseEnabled: false,
+    pendingMouseTrackingSequence: '',
+    pendingMouseTrackingStateSequence: ''
   });
   scheduleTerminalViewportSync(sessionId);
   scheduleSessionPromptGhostRefresh(sessionId, [0, 400]);

@@ -17,6 +17,18 @@ function getShortcutKey(e) {
   return k.length === 1 ? k.toLowerCase() : k;
 }
 
+const MOUSE_REPORT_MODES = new Set(['9', '1000', '1001', '1002', '1003']);
+
+function splitTrailingMousePrivateModePrefix(data) {
+  const escIdx = typeof data === 'string' ? data.lastIndexOf('\x1b') : -1;
+  if (escIdx < 0) return { body: data, pending: '' };
+  const tail = data.slice(escIdx);
+  if (/^\x1b(?:\[(?:\?(?:[0-9;]*)?)?)?$/.test(tail)) {
+    return { body: data.slice(0, escIdx), pending: tail };
+  }
+  return { body: data, pending: '' };
+}
+
 function getGlobalShortcutAction(e, context = {}) {
   const mod = e.ctrlKey || e.metaKey;
   const key = e.key || '';
@@ -143,6 +155,21 @@ function stripTerminalScrollbar(text, terminalColumns = 0) {
   }).join('');
 }
 
+function stripMouseTrackingSequences(data, state = null) {
+  if (typeof data !== 'string') return data;
+  const input = `${state?.pendingMouseTrackingSequence || ''}${data}`;
+  const { body, pending } = splitTrailingMousePrivateModePrefix(input);
+  if (state) state.pendingMouseTrackingSequence = pending;
+  if (body.indexOf('\x1b[?') === -1) return body;
+  return body.replace(/\x1b\[\?([0-9;]+)([hl])/g, (match, params, suffix) => {
+    const modes = params.split(';').filter(Boolean);
+    const kept = modes.filter(mode => !MOUSE_REPORT_MODES.has(mode));
+    if (kept.length === modes.length) return match;
+    if (kept.length === 0) return '';
+    return `\x1b[?${kept.join(';')}${suffix}`;
+  });
+}
+
 /**
  * Creates the xterm custom key event handler for a terminal session.
  *
@@ -180,8 +207,8 @@ function createTerminalKeyHandler(sessionId, terminal, api, hooks = {}) {
     if (mod && !e.shiftKey && lowerKey === 'f') return false;
 
     // Ctrl+C with a selection → copy to clipboard instead of sending SIGINT.
-    // xterm owns terminal selection state; if there is an active selection,
-    // copy it instead of forwarding Ctrl+C as SIGINT.
+    // Mouse-tracking modes are hidden from xterm, so plain drag and Shift+drag
+    // both create xterm selections while wheel reports still go to the CLI.
     // Browser-native selection never exists over the terminal (xterm sets
     // `user-select: none` and preventDefaults mousedown), so xterm's own
     // selection model is the sole source of truth here.
@@ -243,4 +270,4 @@ function createTerminalKeyHandler(sessionId, terminal, api, hooks = {}) {
   };
 }
 
-module.exports = { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, isCopyShortcut };
+module.exports = { createTerminalKeyHandler, getGlobalShortcutAction, getShortcutKey, sanitizePasteText, stripTerminalScrollbar, stripMouseTrackingSequences, splitTrailingMousePrivateModePrefix, MOUSE_REPORT_MODES, isCopyShortcut };

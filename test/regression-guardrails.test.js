@@ -87,9 +87,7 @@ describe('terminal mouse handling — regression guardrails', () => {
     expect(RENDERER_SRC).not.toMatch(/forwardTrackedMouseWheel/);
     expect(RENDERER_SRC).not.toMatch(/handleTerminalScrollbackWheel/);
     expect(RENDERER_SRC).not.toMatch(/getTerminalWheelPagingSequence/);
-    expect(RENDERER_SRC).not.toMatch(/stripMouseTrackingSequences/);
     expect(RENDERER_SRC).not.toMatch(/stripTerminalMouseInputReports/);
-    expect(SHORTCUTS_SRC).not.toMatch(/function stripMouseTrackingSequences/);
     expect(SHORTCUTS_SRC).not.toMatch(/function stripTerminalMouseInputReports/);
     expect(RENDERER_SRC).not.toMatch(/\\x1b\[5~/);
     expect(RENDERER_SRC).not.toMatch(/\\x1b\[6~/);
@@ -97,6 +95,10 @@ describe('terminal mouse handling — regression guardrails', () => {
     expect(RENDERER_SRC).not.toMatch(/terminalColumn\?\.addEventListener\('wheel'/);
     expect(RENDERER_SRC).toMatch(/function terminalWantsMouseWheel\(entry\)[\s\S]*?terminal\.modes\?\.mouseTrackingMode[\s\S]*?entry\.mouseTrackingSeen[\s\S]*?return false/);
     expect(RENDERER_SRC).not.toMatch(/terminal\.buffer\?\.active\?\.type === 'alternate'/);
+    expect(SHORTCUTS_SRC).toMatch(/function stripMouseTrackingSequences\(data,\s*state = null\)[\s\S]*?pendingMouseTrackingSequence[\s\S]*?MOUSE_REPORT_MODES\.has\(mode\)/);
+    expect(RENDERER_SRC).toMatch(/function updateTerminalMouseEncodingState\(entry,\s*data\)[\s\S]*?pendingMouseTrackingStateSequence/);
+    expect(RENDERER_SRC).toMatch(/updateTerminalMouseEncodingState\(entry,\s*data\);[\s\S]*?entry\.terminal\.write\(stripMouseTrackingSequences\(data,\s*entry\)/);
+    expect(RENDERER_SRC).toMatch(/updateTerminalMouseEncodingState\(termEntry,\s*bufferedData\);[\s\S]*?termEntry\.terminal\.write\(stripMouseTrackingSequences\(bufferedData,\s*termEntry\)/);
     expect(RENDERER_SRC).toMatch(/function getTerminalWheelMouseReport\(event,\s*entry\)[\s\S]*?\\x1b\[<\$\{buttonCode\};\$\{coords\.col\};\$\{coords\.row\}M/);
     expect(RENDERER_SRC).toMatch(/function forwardTerminalWheelMouseReport\(sessionId,\s*entry,\s*event\)[\s\S]*?window\.api\.writePty\(sessionId,\s*report\)/);
     expect(RENDERER_SRC).toMatch(/function stripTerminalMouseReportsForPromptTracker\(data\)[\s\S]*?\\x1b\\\[<\\d\+;\\d\+;\\d\+\[mM\]/);
@@ -248,6 +250,26 @@ describe('main process session creation — regression guardrails', () => {
     expect(PTY_MANAGER_SRC).toMatch(/this\._cmdPath\s*=\s*options\.cmdPath/);
     expect(PTY_MANAGER_SRC).toMatch(/file:\s*this\._cmdPath/);
     expect(PTY_MANAGER_SRC).not.toMatch(/file:\s*['"]cmd\.exe['"]/);
+    expect(PTY_MANAGER_SRC).toMatch(/args:\s*\['\/d',\s*'\/s',\s*'\/c',\s*this\._buildCmdCommand\(this\.copilotPath,\s*allArgs\)\]/);
+    expect(PTY_MANAGER_SRC).toMatch(/function|_buildCmdCommand/);
+    expect(PTY_MANAGER_SRC).toMatch(/_ensureCmdSafeLauncherPath\(launcherPath\)/);
+  });
+
+  it('keeps configured Copilot path availability aligned with the actual launch path', () => {
+    expect(MAIN_SRC).toMatch(/function resolveEffectiveCopilotPath/);
+    expect(MAIN_SRC).toMatch(/if \(configuredPath\) \{[\s\S]*?return isUsableLauncherFile\(configuredPath\) \? configuredPath : ''/);
+    expect(MAIN_SRC).toMatch(/function isUsableLauncherFile/);
+    expect(MAIN_SRC).toMatch(/fs\.statSync\(filePath\)\.isFile\(\)/);
+    expect(MAIN_SRC).toMatch(/copilotAvailable:\s*Boolean\(copilotPath\)/);
+    expect(MAIN_SRC).toMatch(/ptyManager\?\.updateCopilotPath\(''\)/);
+    expect(MAIN_SRC).toMatch(/'copilotPath' in sanitized/);
+    expect(PTY_MANAGER_SRC).toMatch(/throw new Error\('Copilot executable path is unavailable\.'\)/);
+  });
+
+  it('does not shell out through an unqualified reg command for Windows PATH recovery', () => {
+    expect(APP_SUPPORT_SRC).toMatch(/execFileSync\(regExe,\s*\['query',\s*key,\s*'\/v',\s*'Path'\]/);
+    expect(APP_SUPPORT_SRC).not.toMatch(/execSync\(`reg query/);
+    expect(APP_SUPPORT_SRC).not.toMatch(/execSync\(['"]reg query/);
   });
 });
 

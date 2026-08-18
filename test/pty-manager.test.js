@@ -212,6 +212,14 @@ describe('PtyManager', () => {
   });
 
   describe('cwd parameter', () => {
+    it('uses a recovered absolute Copilot path for later PTY spawns', async () => {
+      manager.updateCopilotPath('/recovered/bin/copilot');
+
+      await manager.newSession('/my/project');
+
+      expect(mockPtyModule.spawn.mock.calls[0][0]).toBe('/recovered/bin/copilot');
+    });
+
     it('newSession passes cwd to pty.spawn', async () => {
       mockPtyModule.spawn.mockClear();
       await manager.newSession('/my/project');
@@ -426,7 +434,52 @@ describe('PtyManager', () => {
       const [file, args] = mockPtyModule.spawn.mock.calls[0];
 
       expect(file.toLowerCase()).toMatch(/\\system32\\cmd\.exe$/);
-      expect(args).toEqual(['/d', '/s', '/c', '"C:\\Tools\\agency.cmd"', 'copilot', '--agent', 'squad', '--session-id', generatedGuid(1), '--yolo']);
+      expect(args).toEqual(['/d', '/s', '/c', '"\"C:\\Tools\\agency.cmd\" \"copilot\" \"--agent\" \"squad\" \"--session-id\" \"' + generatedGuid(1) + '\" \"--yolo\""']);
+    });
+
+    it('quotes recovered Copilot .cmd paths when spawning through cmd.exe on Windows', async () => {
+      if (process.platform !== 'win32') return;
+      manager.updateCopilotPath('C:\\Tools With Spaces\\copilot.cmd');
+
+      await manager.newSession('/copilot/project');
+
+      const [file, args] = mockPtyModule.spawn.mock.calls[0];
+      expect(file.toLowerCase()).toMatch(/\\system32\\cmd\.exe$/);
+      expect(args).toEqual(['/d', '/s', '/c', '"\"C:\\Tools With Spaces\\copilot.cmd\" \"--session-id\" \"' + generatedGuid(1) + '\" \"--yolo\""']);
+    });
+
+    it('quotes recovered Copilot .cmd paths and spaced arguments as one cmd command string on Windows', async () => {
+      if (process.platform !== 'win32') return;
+      manager.updateCopilotPath('C:\\Program Files\\Copilot\\copilot.cmd');
+
+      await manager.newSession('/copilot/project', 'copilot', ['-i', 'Read the file at C:/tmp/prompt.txt']);
+
+      const [file, args] = mockPtyModule.spawn.mock.calls[0];
+      expect(file.toLowerCase()).toMatch(/\\system32\\cmd\.exe$/);
+      expect(args).toEqual([
+        '/d',
+        '/s',
+        '/c',
+        '"\"C:\\Program Files\\Copilot\\copilot.cmd\" \"--session-id\" \"' + generatedGuid(1) + '\" \"--yolo\" \"-i\" \"Read the file at C:/tmp/prompt.txt\""',
+      ]);
+    });
+
+    it('rejects unsupported characters in recovered Copilot .cmd launcher paths on Windows', async () => {
+      if (process.platform !== 'win32') return;
+      manager.updateCopilotPath('C:\\Tools\\bad%copilot.cmd');
+
+      await expect(manager.newSession('/copilot/project')).rejects.toThrow(/unsupported characters/);
+      expect(mockPtyModule.spawn).not.toHaveBeenCalled();
+    });
+
+    it('allows legal metacharacters in quoted recovered Copilot .cmd launcher paths on Windows', async () => {
+      if (process.platform !== 'win32') return;
+      manager.updateCopilotPath('C:\\Tools\\A&B\\copilot.cmd');
+
+      await manager.newSession('/copilot/project');
+
+      const [, args] = mockPtyModule.spawn.mock.calls[0];
+      expect(args[3]).toContain('"C:\\Tools\\A&B\\copilot.cmd"');
     });
 
     it('rejects environment-expansion characters for Windows .cmd launcher args', async () => {
@@ -459,6 +512,34 @@ describe('PtyManager', () => {
   });
 
   describe('warmUp / claimStandby', () => {
+    it('invalidates a warmed standby when launcher availability changes', async () => {
+      await manager.warmUp('/cwd');
+      const standbyPty = manager._standby.pty;
+
+      manager.invalidateStandby();
+
+      expect(standbyPty.kill).toHaveBeenCalled();
+      expect(manager._standby).toBeNull();
+    });
+
+    it('clears the Copilot launcher and blocks later Copilot spawns when detection becomes unavailable', async () => {
+      manager.updateCopilotPath('');
+
+      await expect(manager.newSession('/cwd', 'copilot')).rejects.toThrow(/Copilot executable path is unavailable/);
+      expect(mockPtyModule.spawn).not.toHaveBeenCalled();
+    });
+
+    it('does not kill an Agency standby when only Copilot availability changes', async () => {
+      await manager.warmUp('/cwd', 'agency');
+      const standbyPty = manager._standby.pty;
+
+      manager.updateCopilotPath('');
+
+      expect(standbyPty.kill).not.toHaveBeenCalled();
+      expect(manager._standby).not.toBeNull();
+      expect(manager._standby.launcher).toBe('agency');
+    });
+
     it('warmUp creates a standby session', async () => {
       mockPtyModule.spawn.mockClear();
       await manager.warmUp('/my/cwd');

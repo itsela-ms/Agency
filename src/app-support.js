@@ -93,6 +93,94 @@ function resolveCommandPath({
   return { path: fallbackCommand, found: false };
 }
 
+function _pathDelimiter(platform) {
+  return platform === 'win32' ? ';' : ':';
+}
+
+function _splitPathEntries(value, platform = process.platform) {
+  return String(value || '')
+    .split(_pathDelimiter(platform))
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
+function mergePathEntries(paths, platform = process.platform) {
+  const seen = new Set();
+  const merged = [];
+  for (const value of paths) {
+    for (const entry of _splitPathEntries(value, platform)) {
+      const key = platform === 'win32' ? entry.toLowerCase() : entry;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(entry);
+    }
+  }
+  return merged.join(_pathDelimiter(platform));
+}
+
+function expandWindowsEnvVars(value, env = process.env) {
+  return String(value || '').replace(/%([^%]+)%/g, (match, name) => {
+    const foundKey = Object.keys(env).find(key => key.toLowerCase() === String(name).toLowerCase());
+    return foundKey ? env[foundKey] : match;
+  });
+}
+
+function _parseRegistryPathValue(output) {
+  const text = String(output || '');
+  const line = text.split(/\r?\n/).find(row => /\bPath\b/i.test(row) && /\bREG_(?:EXPAND_)?SZ\b/i.test(row));
+  if (!line) return '';
+  const match = line.match(/\bREG_(?:EXPAND_)?SZ\b\s+(.+)$/i);
+  return match ? match[1].trim() : '';
+}
+
+function readWindowsPersistedPath(deps = {}) {
+  const platform = deps.platform || process.platform;
+  if (platform !== 'win32') return { userPath: '', machinePath: '' };
+  if (typeof deps.readWindowsPersistedPath === 'function') {
+    return deps.readWindowsPersistedPath();
+  }
+  const execFileSync = deps.execFileSync || (!deps.execSync ? require('child_process').execFileSync : null);
+  if (!execFileSync) return { userPath: '', machinePath: '' };
+  const env = deps.env || process.env;
+  const pathApi = path.win32;
+  const windowsDir = pathApi.isAbsolute(env.SystemRoot || '') ? env.SystemRoot
+    : pathApi.isAbsolute(env.windir || '') ? env.windir
+      : 'C:\\Windows';
+  const regExe = pathApi.join(windowsDir, 'System32', 'reg.exe');
+  const query = (key) => {
+    try {
+      return _parseRegistryPathValue(execFileSync(regExe, ['query', key, '/v', 'Path'], {
+        encoding: 'utf8',
+        timeout: 5000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }));
+    } catch {
+      return '';
+    }
+  };
+  return {
+    userPath: query('HKCU\\Environment'),
+    machinePath: query('HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'),
+  };
+}
+
+function refreshWindowsProcessPath(deps = {}) {
+  const platform = deps.platform || process.platform;
+  const env = deps.env || process.env;
+  if (platform !== 'win32') return { mutated: false, before: env.PATH || '', after: env.PATH || '' };
+  const before = env.PATH || '';
+  const { userPath, machinePath } = readWindowsPersistedPath({ ...deps, env, platform });
+  const expandedUserPath = expandWindowsEnvVars(userPath, env);
+  const expandedMachinePath = expandWindowsEnvVars(machinePath, env);
+  const after = mergePathEntries([before, expandedUserPath, expandedMachinePath], platform);
+  if (after && after !== before) {
+    env.PATH = after;
+    env.Path = after;
+    return { mutated: true, before, after };
+  }
+  return { mutated: false, before, after: before };
+}
+
 function _macPosixCandidates(env, binName) {
   // Order matters: probe the locations most likely to hold a real, working
   // binary first so we exit early and skip slower disk checks.
@@ -115,7 +203,8 @@ function resolveCopilotPath(deps = {}) {
 }
 
 function resolveCopilotInfo(deps = {}) {
-  const cacheable = !deps.execSync && !deps.existsSync && !deps.env;
+  const cacheable = deps._cacheable === true
+    || (!deps.execSync && !deps.existsSync && !deps.env);
   if (cacheable && _commandPathCache.has('copilot')) {
     return _commandPathCache.get('copilot');
   }
@@ -137,7 +226,7 @@ function resolveCopilotInfo(deps = {}) {
     candidates = _macPosixCandidates(env, 'copilot');
   }
 
-  const result = resolveCommandPath({
+  let result = resolveCommandPath({
     names,
     candidates,
     fallbackCommand: 'copilot',
@@ -145,7 +234,19 @@ function resolveCopilotInfo(deps = {}) {
     existsSync: deps.existsSync || fs.existsSync,
     platform,
   });
-  if (cacheable) _commandPathCache.set('copilot', result);
+  if (!result.found && platform === 'win32' && !deps._skipWindowsPathRefresh) {
+    refreshWindowsProcessPath({ ...deps, env, platform });
+    result = resolveCommandPath({
+      names,
+      candidates,
+      fallbackCommand: 'copilot',
+      execSyncImpl: execSync,
+      existsSync: deps.existsSync || fs.existsSync,
+      platform,
+    });
+    if (result.found) result.recoveredFromPathRefresh = true;
+  }
+  if (cacheable && result.found) _commandPathCache.set('copilot', result);
   return result;
 }
 
@@ -417,10 +518,14 @@ module.exports = {
   bootstrapMacEnvironment,
   buildAugmentedPath,
   calculateNotificationPosition,
+  expandWindowsEnvVars,
   getLoginShellPath,
   isValidSessionId,
+  mergePathEntries,
   pickNotificationDisplay,
   parseLauncherArgs,
+  readWindowsPersistedPath,
+  refreshWindowsProcessPath,
   resolveCommandPath,
   resolveAgencyInfo,
   resolveBrochureInfo,

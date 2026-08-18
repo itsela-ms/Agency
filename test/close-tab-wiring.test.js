@@ -143,7 +143,7 @@ describe('session:new IPC contract returns bufferedData', () => {
     expect(m, 'expected newSession definition').not.toBeNull();
     // Must write bufferedData AFTER createTerminal (not before).
     const createIdx = m[0].indexOf('createTerminal(sessionId)');
-    const writeIdx = m[0].indexOf('termEntry.terminal.write(bufferedData');
+    const writeIdx = m[0].indexOf('termEntry.terminal.write(stripMouseTrackingSequences(bufferedData, termEntry)');
     expect(createIdx).toBeGreaterThan(-1);
     expect(writeIdx).toBeGreaterThan(createIdx);
   });

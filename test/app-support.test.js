@@ -5,6 +5,9 @@ const {
   isValidSessionId,
   pickNotificationDisplay,
   parseLauncherArgs,
+  mergePathEntries,
+  readWindowsPersistedPath,
+  refreshWindowsProcessPath,
   resolveCommandPath,
   resolveAgencyInfo,
   resolveBrochureInfo,
@@ -194,21 +197,160 @@ describe('app-support', () => {
   describe('command-path caching', () => {
     const { _clearCommandPathCache } = require('../src/app-support');
 
-    it('caches resolveCopilotInfo across calls so Ctrl+W does not shell out per close', () => {
+    it('caches positive resolveCopilotInfo results across calls so Ctrl+W does not shell out per close', () => {
       _clearCommandPathCache();
-      // First call uses the real (uninjected) execSync — we exercise the
-      // cacheable production path. The probe is run and the result memoized;
-      // a second call returns the SAME reference without re-probing.
-      const first = resolveCopilotInfo();
-      const second = resolveCopilotInfo();
+      const execSync = vi.fn(() => 'C:\\Tools\\copilot.exe\r\n');
+      const existsSync = vi.fn((file) => file === 'C:\\Tools\\copilot.exe');
+      const deps = {
+        execSync,
+        existsSync,
+        env: {},
+        platform: 'win32',
+        _cacheable: true,
+        _skipWindowsPathRefresh: true,
+      };
+      const first = resolveCopilotInfo(deps);
+      const second = resolveCopilotInfo(deps);
+
+      expect(first).toEqual({ path: 'C:\\Tools\\copilot.exe', found: true });
       expect(second).toBe(first);
-    }, 15000);
+      expect(execSync).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not permanently cache negative Copilot lookups', () => {
+      const existsSync = vi.fn((file) => file === 'C:\\Tools\\copilot.exe');
+      const execSync = vi.fn()
+        .mockImplementationOnce(() => { throw new Error('missing'); })
+        .mockImplementationOnce(() => { throw new Error('missing'); })
+        .mockImplementationOnce(() => 'C:\\Tools\\copilot.exe\r\n');
+
+      const first = resolveCopilotInfo({
+        execSync,
+        existsSync,
+        env: {},
+        platform: 'win32',
+        readWindowsPersistedPath: () => ({ userPath: '', machinePath: '' }),
+        _skipWindowsPathRefresh: true,
+      });
+      const second = resolveCopilotInfo({
+        execSync,
+        existsSync,
+        env: {},
+        platform: 'win32',
+        readWindowsPersistedPath: () => ({ userPath: '', machinePath: '' }),
+        _skipWindowsPathRefresh: true,
+      });
+
+      expect(first).toEqual({ path: 'copilot', found: false });
+      expect(second).toEqual({ path: 'C:\\Tools\\copilot.exe', found: true });
+    });
 
     it('caches resolveAgencyInfo across calls', () => {
       _clearCommandPathCache();
       const first = resolveAgencyInfo();
       const second = resolveAgencyInfo();
       expect(second).toBe(first);
+    });
+
+    describe('Windows PATH recovery', () => {
+      it('reads persisted PATH through absolute reg.exe without shell command text', () => {
+        const execFileSync = vi.fn((file, args) => {
+          expect(file).toBe('C:\\Windows\\System32\\reg.exe');
+          expect(args[0]).toBe('query');
+          expect(args[2]).toBe('/v');
+          expect(args[3]).toBe('Path');
+          return args[1] === 'HKCU\\Environment'
+            ? '    Path    REG_EXPAND_SZ    C:\\UserBin\r\n'
+            : '    Path    REG_SZ    C:\\MachineBin\r\n';
+        });
+
+        expect(readWindowsPersistedPath({
+          platform: 'win32',
+          env: { SystemRoot: 'C:\\Windows' },
+          execFileSync,
+        })).toEqual({
+          userPath: 'C:\\UserBin',
+          machinePath: 'C:\\MachineBin',
+        });
+        expect(execFileSync).toHaveBeenCalledTimes(2);
+      });
+
+      it('merges persisted User and Machine PATH entries into a stale process PATH', () => {
+        const env = {
+          PATH: 'C:\\ProcessOnly;C:\\Windows\\System32',
+          LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local',
+          ProgramFiles: 'C:\\Program Files',
+        };
+        const result = refreshWindowsProcessPath({
+          platform: 'win32',
+          env,
+          readWindowsPersistedPath: () => ({
+            userPath: '%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\GitHub.Copilot_123',
+            machinePath: '%ProgramFiles%\\GitHub Copilot CLI;C:\\Windows\\System32',
+          }),
+        });
+
+        expect(result.mutated).toBe(true);
+        expect(env.PATH).toBe(
+          'C:\\ProcessOnly;C:\\Windows\\System32;C:\\Users\\dev\\AppData\\Local\\Microsoft\\WinGet\\Packages\\GitHub.Copilot_123;C:\\Program Files\\GitHub Copilot CLI'
+        );
+        expect(env.Path).toBe(env.PATH);
+      });
+
+      it('preserves existing entries and removes duplicates case-insensitively', () => {
+        expect(mergePathEntries([
+          'C:\\Tools;C:\\Windows',
+          'c:\\tools;C:\\New',
+          'C:\\WINDOWS;C:\\Other',
+        ], 'win32')).toBe('C:\\Tools;C:\\Windows;C:\\New;C:\\Other');
+      });
+
+      it('detects Copilot after Windows PATH refresh without requiring app relaunch', () => {
+        const env = { PATH: 'C:\\Windows\\System32' };
+        const existsSync = vi.fn((file) => file === 'C:\\Winget\\GitHub.Copilot\\copilot.exe');
+        const execSync = vi.fn((cmd) => {
+          if (cmd.startsWith('where')) {
+            if (env.PATH.includes('C:\\Winget\\GitHub.Copilot')) {
+              return 'C:\\Winget\\GitHub.Copilot\\copilot.exe\r\n';
+            }
+            throw new Error('missing');
+          }
+          throw new Error('unexpected command');
+        });
+
+        const info = resolveCopilotInfo({
+          execSync,
+          existsSync,
+          env,
+          platform: 'win32',
+          readWindowsPersistedPath: () => ({
+            userPath: 'C:\\Winget\\GitHub.Copilot',
+            machinePath: '',
+          }),
+        });
+
+        expect(info).toEqual({
+          path: 'C:\\Winget\\GitHub.Copilot\\copilot.exe',
+          found: true,
+          recoveredFromPathRefresh: true,
+        });
+        expect(env.PATH).toContain('C:\\Winget\\GitHub.Copilot');
+      });
+
+      it('retries the Copilot lookup at most once after Windows PATH refresh', () => {
+        const execSync = vi.fn(() => { throw new Error('missing'); });
+        const existsSync = vi.fn(() => false);
+        const info = resolveCopilotInfo({
+          execSync,
+          existsSync,
+          env: { PATH: 'C:\\Windows' },
+          platform: 'win32',
+          readWindowsPersistedPath: () => ({ userPath: 'C:\\New', machinePath: '' }),
+        });
+
+        expect(info).toEqual({ path: 'copilot', found: false });
+        expect(execSync.mock.calls.filter(([cmd]) => String(cmd).startsWith('where '))).toHaveLength(4);
+      });
     });
 
     it('bypasses the cache when deps are injected so tests stay isolated', () => {

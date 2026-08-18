@@ -44,8 +44,7 @@ class PtyManager extends EventEmitter {
     this._pty = ptyModule || defaultPty;
 
     // On Windows, .cmd files must be spawned via cmd.exe
-    this._useCmd = process.platform === 'win32' &&
-      copilotPath.toLowerCase().endsWith('.cmd');
+    this._useCmd = this._isWindowsCmdLauncher(copilotPath);
     this._agencyUseCmd = process.platform === 'win32' &&
       this.agencyPath.toLowerCase().endsWith('.cmd');
     this._standby = null;
@@ -65,6 +64,35 @@ class PtyManager extends EventEmitter {
     // Serialize concurrent spawn+discover sequences so two parallel
     // newSession/warmUp calls can't race on the folder-diff snapshot.
     this._spawnLock = Promise.resolve();
+  }
+
+  _isWindowsCmdLauncher(launcherPath) {
+    return process.platform === 'win32' && String(launcherPath || '').toLowerCase().endsWith('.cmd');
+  }
+
+  updateCopilotPath(copilotPath) {
+    if (!copilotPath) {
+      if (this.copilotPath) {
+        this.copilotPath = '';
+        this._useCmd = false;
+      }
+      this.invalidateStandby('copilot');
+      return;
+    }
+    if (copilotPath === this.copilotPath) return;
+    this.copilotPath = copilotPath;
+    this._useCmd = this._isWindowsCmdLauncher(copilotPath);
+    this.invalidateStandby('copilot');
+  }
+
+  invalidateStandby(launcher) {
+    this._warmUpGeneration += 1;
+    if (this._standby && this._standby.alive) {
+      if (launcher && this._standby.launcher !== launcher) return;
+      try { this._standby.pty.kill(); } catch {}
+      this._standby.alive = false;
+      this._standby = null;
+    }
   }
 
   _resolveLauncher(launcher) {
@@ -89,6 +117,25 @@ class PtyManager extends EventEmitter {
     if (unsafe !== undefined) {
       throw new Error('Custom launcher arguments for Windows command launchers cannot contain % or !.');
     }
+  }
+
+  _ensureCmdSafeLauncherPath(launcherPath) {
+    if (/[\0\r\n"%!]/.test(String(launcherPath || ''))) {
+      throw new Error('Windows command launcher path contains unsupported characters.');
+    }
+  }
+
+  _quoteCmdArg(arg) {
+    const value = String(arg);
+    if (/[\0\r\n"%!]/.test(value)) {
+      throw new Error('Windows command launcher arguments contain unsupported characters.');
+    }
+    return `"${value}"`;
+  }
+
+  _buildCmdCommand(launcherPath, args) {
+    this._ensureCmdSafeLauncherPath(launcherPath);
+    return `"${[this._quoteCmdArg(launcherPath), ...args.map(arg => this._quoteCmdArg(arg))].join(' ')}"`;
   }
 
   _standbyKey(cwd, launcher) {
@@ -119,14 +166,17 @@ class PtyManager extends EventEmitter {
       if (this._agencyUseCmd) {
         if (!path.isAbsolute(this._cmdPath)) throw new Error('Windows command processor path is unavailable.');
         this._ensureCmdSafeLauncherArgs(launcherArgs);
-        return { file: this._cmdPath, args: ['/d', '/s', '/c', `"${this.agencyPath}"`, 'copilot', ...allArgs], launcher: resolvedLauncher };
+        return { file: this._cmdPath, args: ['/d', '/s', '/c', this._buildCmdCommand(this.agencyPath, ['copilot', ...allArgs])], launcher: resolvedLauncher };
       }
       return { file: this.agencyPath, args: ['copilot', ...allArgs], launcher: resolvedLauncher };
+    }
+    if (!this.copilotPath) {
+      throw new Error('Copilot executable path is unavailable.');
     }
     if (this._useCmd) {
       if (!path.isAbsolute(this._cmdPath)) throw new Error('Windows command processor path is unavailable.');
       this._ensureCmdSafeLauncherArgs(launcherArgs);
-      return { file: this._cmdPath, args: ['/c', this.copilotPath, ...allArgs], launcher: resolvedLauncher };
+      return { file: this._cmdPath, args: ['/d', '/s', '/c', this._buildCmdCommand(this.copilotPath, allArgs)], launcher: resolvedLauncher };
     }
     return { file: this.copilotPath, args: allArgs, launcher: resolvedLauncher };
   }
