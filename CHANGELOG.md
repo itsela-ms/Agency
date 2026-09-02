@@ -4,6 +4,12 @@ All notable changes to DeepSky are documented here.
 
 ## [Unreleased]
 
+## [1.2.12] - 2026-09-02
+
+### Fixed
+- **Terminal scrolling and copy now work together** - DeepSky hides terminal mouse-tracking mode from xterm so plain drag selection and copy keep working, while still forwarding wheel reports to the CLI when mouse tracking is negotiated.
+- **Copilot CLI detection recovers without restarting** - on Windows, DeepSky no longer permanently caches a missing Copilot CLI result and refreshes the running process PATH from persisted User/Machine PATH values before retrying, so WinGet/PATH installs are picked up in-place.
+
 ## [1.2.12-beta.1] - 2026-08-04
 
 ### Fixed
